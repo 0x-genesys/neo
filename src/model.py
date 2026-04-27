@@ -95,24 +95,48 @@ class FeedForward(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    """Transformer block with pre-norm architecture."""
+    """Transformer block with pre-norm architecture and optional gradient checkpointing."""
     
-    def __init__(self, d_model, num_heads, context_length, dropout=0.1):
+    def __init__(self, d_model, num_heads, context_length, dropout=0.1, use_gradient_checkpointing=False):
         super().__init__()
-        self.ln_1 = nn.LayerNorm(d_model)
+        self.use_gradient_checkpointing = use_gradient_checkpointing
         self.ln_1 = nn.LayerNorm(d_model)  # layer norm before attention
         self.attn = CausalSelfAttention(d_model, num_heads, context_length, dropout)
-        self.ln_2 = nn.LayerNorm(d_model)
         self.ln_2 = nn.LayerNorm(d_model)  # layer norm before feed-forward
         self.mlp = FeedForward(d_model, dropout)
 
     def forward(self, x):
-        # Pre-norm with residual connections
+        # Use gradient checkpointing if enabled and in training mode
+        if self.training and self.use_gradient_checkpointing:
+            return self._forward_with_checkpointing(x)
+        else:
+            return self._forward(x)
+    
+    def _forward(self, x):
+        """Standard forward pass."""
         # Pre-norm variant: normalize before each sub-layer, then add residual.
         # This is more stable to train than the original post-norm formulation.
         x = x + self.attn(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return x
+    
+    def _forward_with_checkpointing(self, x):
+        """Forward pass with gradient checkpointing to save memory."""
+        from torch.utils.checkpoint import checkpoint
+        
+        # Checkpoint attention block
+        x = x + checkpoint(self._attn_forward, x, use_reentrant=False)
+        # Checkpoint MLP block
+        x = x + checkpoint(self._mlp_forward, x, use_reentrant=False)
+        return x
+    
+    def _attn_forward(self, x):
+        """Attention forward for checkpointing."""
+        return self.attn(self.ln_1(x))
+    
+    def _mlp_forward(self, x):
+        """MLP forward for checkpointing."""
+        return self.mlp(self.ln_2(x))
 
 
 class DecoderOnlyTransformer(nn.Module):
@@ -122,10 +146,11 @@ class DecoderOnlyTransformer(nn.Module):
     """
     
     def __init__(self, vocab_size, d_model, num_heads, num_layers, 
-                 context_length, dropout=0.1):
+                 context_length, dropout=0.1, use_gradient_checkpointing=False):
         super().__init__()
         self.context_length = context_length
         self.d_model = d_model
+        self.use_gradient_checkpointing = use_gradient_checkpointing
         
         # Token and position embeddings
         self.token_embedding = nn.Embedding(vocab_size, d_model)
@@ -134,9 +159,9 @@ class DecoderOnlyTransformer(nn.Module):
         self.drop = nn.Dropout(dropout)
         
         # Transformer blocks
-        # Stack of identical transformer blocks
+        # Stack of identical transformer blocks with optional gradient checkpointing
         self.blocks = nn.ModuleList([
-            TransformerBlock(d_model, num_heads, context_length, dropout)
+            TransformerBlock(d_model, num_heads, context_length, dropout, use_gradient_checkpointing)
             for _ in range(num_layers)
         ])
         
@@ -285,13 +310,20 @@ class DecoderOnlyTransformer(nn.Module):
 
 def create_model(config):
     """Factory function to create model from config."""
+    use_gradient_checkpointing = config['model'].get('use_gradient_checkpointing', False)
+    
     model = DecoderOnlyTransformer(
         vocab_size=config['model']['vocab_size'],
         d_model=config['model']['d_model'],
         num_heads=config['model']['num_heads'],
         num_layers=config['model']['num_layers'],
         context_length=config['model']['context_length'],
-        dropout=config['model']['dropout']
+        dropout=config['model']['dropout'],
+        use_gradient_checkpointing=use_gradient_checkpointing
     )
+    
+    if use_gradient_checkpointing:
+        print("✅ Gradient checkpointing enabled (saves memory, slightly slower)")
+    
     return model
 

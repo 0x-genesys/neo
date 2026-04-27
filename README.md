@@ -8,6 +8,12 @@ Production-ready transformer training system with comprehensive documentation an
 # Setup
 ./setup.sh
 
+# Validate all configs and code (RECOMMENDED FIRST STEP)
+python validate_configs.py
+
+# Test new features (warmup, gradient checkpointing)
+python test_shakespeare.py
+
 # Train small model (testing - 1 hour)
 ./venv/bin/python train.py --config config/quick_start.yaml
 
@@ -16,6 +22,9 @@ Production-ready transformer training system with comprehensive documentation an
 
 # Train on GPU - RECOMMENDED (3 hours, high quality)
 python train.py --config config/gpu_training.yaml
+
+# Train large model on GPU - PRODUCTION (2-3 days, excellent quality)
+python train.py --config config/gpu_training_117m.yaml
 
 # Generate text
 ./venv/bin/python src/inference.py \
@@ -26,14 +35,22 @@ python train.py --config config/gpu_training.yaml
 
 ## Configuration Options
 
-| Config | Hardware | Time | Quality | Use Case |
-|--------|----------|------|---------|----------|
-| `quick_start.yaml` | CPU | 1h | Basic | Testing |
-| `production_training.yaml` | CPU | 10h | Okay | No GPU |
-| **`gpu_training.yaml`** | **T4 GPU** | **3h** | **Good** | **Recommended** |
-| `model_config.yaml` | A100 | 20h | Excellent | Production |
+| Config | Params | Hardware | Time | Quality | Use Case |
+|--------|--------|----------|------|---------|----------|
+| `quick_start.yaml` | 8M | CPU | 1h | Basic | Testing |
+| `production_training.yaml` | 16M | CPU | 10h | Good | No GPU |
+| **`gpu_training.yaml`** | **16M** | **T4 GPU** | **3h** | **Very Good** | **Recommended** ✅ |
+| **`gpu_training_117m.yaml`** | **124M** | **T4 GPU** | **55h** | **Excellent** | **Production** 🚀 |
+| `gpu_training_345m.yaml` | 345M | A100 | 3-5d | Very Good | GPT-2 Medium |
+| `gpu_training_774m.yaml` | 774M | A100 | 1-2w | Excellent | GPT-2 Large |
+| `gpu_training_1.5b.yaml` | 1.5B | A100 | 2-4w | Excellent | GPT-2 XL |
+| `gpu_training_2.7b.yaml` | 2.7B | 4-8×A100 | 1-2m | GPT-3 | GPT-3 Small* |
+| `gpu_training_6.7b.yaml` | 6.7B | 8-16×A100 | 2-3m | GPT-3 | GPT-3 Medium* |
+| `gpu_training_13b.yaml` | 13B | 16-32×A100 | 3-6m | GPT-3 | GPT-3 Large* |
 
-See [docs/CONFIG_COMPARISON.md](docs/CONFIG_COMPARISON.md) for detailed comparison.
+*Requires distributed training implementation (DDP/FSDP)
+
+See [docs/CONFIG_INDEX.md](docs/CONFIG_INDEX.md) for complete details.
 
 ## Current Status
 
@@ -57,11 +74,15 @@ season..."
 
 ### Getting Started
 - **[docs/START_HERE.md](docs/START_HERE.md)** - Begin here
+- **[docs/NEW_FEATURES.md](docs/NEW_FEATURES.md)** - New features (warmup, checkpointing, GPT-4 tokenizer)
 - **[docs/INSTALLATION.md](docs/INSTALLATION.md)** - Setup guide
 - **[docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md)** - Command cheatsheet
 
 ### Training
 - **[docs/TRAINING_SUCCESS.md](docs/TRAINING_SUCCESS.md)** - Training status
+- **[docs/GPU_TRAINING_GUIDE.md](docs/GPU_TRAINING_GUIDE.md)** - GPU training guide
+- **[docs/SCALING_TO_124M.md](docs/SCALING_TO_124M.md)** - Scaling to 124M parameters
+- **[docs/MODEL_COMPARISON.md](docs/MODEL_COMPARISON.md)** - Model comparison
 - **[docs/DATASETS.md](docs/DATASETS.md)** - Dataset options
 - **[docs/HUGGINGFACE_SETUP.md](docs/HUGGINGFACE_SETUP.md)** - HF token setup
 
@@ -89,9 +110,11 @@ transformer_2026/
 │   ├── device_utils.py      # Device detection
 │   └── tokenizer_utils.py   # Tokenizer helpers
 ├── config/                   # Configuration files
-│   ├── quick_start.yaml     # Small model (500 steps)
-│   ├── production_training.yaml  # Medium model (5000 steps)
-│   └── model_config.yaml    # Large model config
+│   ├── quick_start.yaml     # Small model (8M params, 500 steps)
+│   ├── production_training.yaml  # Medium model (16M params, 10K steps)
+│   ├── gpu_training.yaml    # GPU optimized (16M params, 50K steps)
+│   ├── gpu_training_117m.yaml    # Large model (124M params, 100K steps)
+│   └── model_config.yaml    # Large model config (40M params)
 ├── docs/                     # Documentation
 │   ├── next_steps/          # Scaling guides
 │   │   ├── SCALING_CHECKLIST.md
@@ -107,6 +130,8 @@ transformer_2026/
 
 ### ✅ Complete Training System
 - GPT-style decoder-only transformer
+- **Learning rate warmup scheduler** (NEW!)
+- **Gradient checkpointing** (NEW!)
 - Gradient accumulation
 - Learning rate scheduling
 - Checkpointing & resume
@@ -115,15 +140,19 @@ transformer_2026/
 
 ### ✅ Production Ready
 - Cross-platform (CPU/CUDA/MPS)
+- **GPT-4 tokenizer support** (NEW!)
 - Error handling & recovery
 - Comprehensive documentation
 - 11 bugs fixed through testing
+- **Scalable to billion-parameter models** (NEW!)
 
-### ⚠️ Scaling Limitations (See docs/next_steps/)
-- ❌ No learning rate warmup (critical for large models)
-- ❌ No gradient checkpointing (needed for memory)
-- ❌ No distributed training (needed for multi-GPU)
-- ❌ No Flash Attention (helpful for long context)
+### ✅ New Features (Just Implemented)
+- ✅ **Warmup scheduler**: Linear warmup + cosine decay (critical for large models)
+- ✅ **Gradient checkpointing**: 2-3x memory savings (train larger models)
+- ✅ **GPT-4 tokenizer**: 100k vocab support via tiktoken
+- ✅ **Test script**: Validates all features on CPU (`test_shakespeare.py`)
+
+See [docs/NEW_FEATURES.md](docs/NEW_FEATURES.md) for details.
 
 ## System Requirements
 
@@ -152,12 +181,15 @@ transformer_2026/
 4. See [docs/next_steps/SCALING_CHECKLIST.md](docs/next_steps/SCALING_CHECKLIST.md)
 
 ### Scaling Progression
-1. Current: 16M params (CPU) ✅
-2. Next: 117M params (single GPU)
-3. Then: 345M-774M params (single GPU)
-4. Future: 1B+ params (multi-GPU)
+1. Current: 16M params (CPU/GPU) ✅
+2. **Production: 124M params (GPU)** 🚀
+3. Medium: 345M-774M params (GPT-2 Medium/Large)
+4. Large: 1.5B-2.7B params (GPT-2 XL / GPT-3 Small)
+5. XL: 6.7B-13B params (GPT-3 Medium/Large)
 
-See [docs/next_steps/PROPOSED_ARCHITECTURES.md](docs/next_steps/PROPOSED_ARCHITECTURES.md) for detailed configurations.
+**All configs available!** See [docs/CONFIG_INDEX.md](docs/CONFIG_INDEX.md) for complete guide.
+
+Configs for 2.7B+ require distributed training implementation (DDP/FSDP).
 
 ## Key Achievements
 

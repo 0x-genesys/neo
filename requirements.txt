@@ -16,6 +16,7 @@ transformers>=4.30.0
 datasets>=2.14.0
 tokenizers>=0.13.0
 sentencepiece>=0.1.99
+tiktoken>=0.5.0  # For GPT-4 tokenizer support
 
 # Training utilities
 tqdm>=4.65.0

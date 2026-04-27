@@ -1,0 +1,108 @@
+# GPU Training Configuration - 2.7B Parameter Model (GPT-3 Small)
+# GPT-3 Small scale model for foundation model quality
+# Requires multi-GPU setup (4-8x A100 40GB or 2-4x A100 80GB)
+
+model:
+  vocab_size: 100277  # GPT-4 tokenizer
+  d_model: 2560        # GPT-3 Small standard
+  num_heads: 32        # head_dim = 2560/32 = 80
+  num_layers: 32
+  context_length: 2048
+  dropout: 0.1
+  use_gradient_checkpointing: true  # Required
+
+# Training Configuration
+training:
+  batch_size: 1        # Per GPU
+  gradient_accumulation_steps: 128  # Effective batch = 128 (single GPU) or 512 (4 GPUs)
+  max_epochs: 1
+  max_steps: 1000000   # 1M steps for quality
+  learning_rate: 1.0e-4
+  weight_decay: 0.1
+  warmup_steps: 15000  # 1.5% of total steps
+  max_grad_norm: 1.0
+  eval_interval: 10000
+  save_interval: 20000
+  log_interval: 10
+
+# Data Configuration
+data:
+  dataset_name: "allenai/c4"  # C4 dataset
+  dataset_config: "en"
+  train_split: "train"
+  val_split: "validation"
+  test_split: "validation"
+  max_length: 2048
+  num_workers: 4
+  pin_memory: true
+
+# Tokenizer Configuration
+tokenizer:
+  type: "Xenova/gpt-4"  # GPT-4 tokenizer (100k vocab)
+  vocab_size: 100277
+
+# Optimization
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  type: "cosine_with_warmup"
+  min_lr: 1.0e-5
+
+# System Configuration
+system:
+  device: "cuda"
+  mixed_precision: true  # Essential
+  compile_model: true
+  seed: 42
+
+# Checkpointing
+checkpoint:
+  save_dir: "checkpoints/gpu_training_2.7b"
+  resume_from: null
+  save_best_only: false
+
+# Logging
+logging:
+  use_wandb: true  # Recommended for long training
+  wandb_project: "transformer-2.7b"
+  wandb_entity: null
+  log_dir: "logs/gpu_training_2.7b"
+
+# Generation
+generation:
+  max_new_tokens: 200
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  num_samples: 3
+
+# ============================================================================
+# MODEL SPECIFICATIONS
+# ============================================================================
+# Parameters: ~2.7B
+# Architecture: GPT-3 Small
+# Memory (FP16): ~80GB (model + optimizer + activations)
+# GPU Required: 4-8x A100 40GB or 2-4x A100 80GB
+# Training Time: 1-2 months on 8x A100
+# Dataset: C4 (300B+ tokens) or RedPajama (1T+ tokens)
+# Chinchilla Optimal: 2.7B × 20 = 54B tokens
+# Actual Training: 1M steps × 1 × 2048 × 128 = 262B tokens (4.9× optimal)
+# Expected Loss: ~0.5-0.7
+# Quality: GPT-3 level
+# Cost: ~$10,000-20,000 on cloud GPU
+#
+# IMPORTANT: This config requires distributed training implementation!
+# You need to:
+# 1. Implement DistributedDataParallel (DDP) or FSDP
+# 2. Use DeepSpeed ZeRO Stage 2 or 3 for memory efficiency
+# 3. Run with: torchrun --nproc_per_node=8 train.py --config config/gpu_training_2.7b.yaml
+#
+# For single GPU testing (not recommended for full training):
+# - Reduce batch_size to 1
+# - Increase gradient_accumulation_steps to 512
+# - Enable gradient_checkpointing
+# - Expect ~3-6 months training time
+# ============================================================================

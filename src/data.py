@@ -83,84 +83,152 @@ def load_data(config):
     """
     print(f"Loading dataset: {config['data']['dataset_name']}")
     
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(config['tokenizer']['type'])
+    # Load tokenizer with error handling
+    tokenizer_type = config['tokenizer']['type']
+    print(f"Loading tokenizer: {tokenizer_type}")
+    
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_type)
+        print(f"✅ Tokenizer loaded successfully: {tokenizer_type}")
+    except Exception as e:
+        print(f"⚠️  Error loading tokenizer '{tokenizer_type}': {e}")
+        print(f"   Falling back to GPT-2 tokenizer...")
+        tokenizer = AutoTokenizer.from_pretrained('gpt2')
+        tokenizer_type = 'gpt2'
     
     # Set pad token if not exists
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+        print(f"   Set pad_token = eos_token ({tokenizer.eos_token})")
     
     # Update vocab size in config
-    config['model']['vocab_size'] = len(tokenizer)
-    print(f"Tokenizer vocabulary size: {len(tokenizer)}")
+    actual_vocab_size = len(tokenizer)
+    config['model']['vocab_size'] = actual_vocab_size
+    print(f"✅ Tokenizer vocabulary size: {actual_vocab_size:,}")
     
-    # Load dataset from HuggingFace
+    # Warn if vocab size mismatch
+    expected_vocab = config['tokenizer'].get('vocab_size', actual_vocab_size)
+    if actual_vocab_size != expected_vocab:
+        print(f"⚠️  Vocab size mismatch: expected {expected_vocab:,}, got {actual_vocab_size:,}")
+        print(f"   Using actual vocab size: {actual_vocab_size:,}")
+    
+    # Load dataset from HuggingFace with robust error handling
+    dataset = None
+    dataset_name = config['data']['dataset_name']
+    dataset_config = config['data'].get('dataset_config')
+    
     try:
-        if config['data']['dataset_name'] == 'wikitext':
-            dataset = load_dataset(
-                'wikitext',
-                config['data']['dataset_config']
-            )
-        elif config['data']['dataset_name'] == 'openwebtext':
+        print(f"Loading dataset: {dataset_name}" + (f" ({dataset_config})" if dataset_config else ""))
+        
+        if dataset_name == 'wikitext':
+            dataset = load_dataset('wikitext', dataset_config or 'wikitext-2-raw-v1')
+        elif dataset_name == 'openwebtext':
             dataset = load_dataset('openwebtext')
-        elif config['data']['dataset_name'] == 'bookcorpus':
+        elif dataset_name == 'c4' or dataset_name == 'allenai/c4':
+            dataset = load_dataset('allenai/c4', dataset_config or 'en', streaming=False)
+        elif dataset_name == 'togethercomputer/RedPajama-Data-1T':
+            print("⚠️  RedPajama is very large (1TB+). Consider using streaming mode.")
+            dataset = load_dataset(dataset_name, dataset_config or 'default', streaming=False)
+        elif dataset_name == 'bookcorpus':
             dataset = load_dataset('bookcorpus')
-        elif config['data']['dataset_name'] == 'tiny_shakespeare':
-            # tiny_shakespeare is deprecated, use Salesforce/wikitext instead
-            print("Note: tiny_shakespeare is deprecated. Using wikitext-2 instead.")
+        elif dataset_name == 'tiny_shakespeare':
+            print("⚠️  tiny_shakespeare is deprecated. Using wikitext-2 instead.")
             dataset = load_dataset('wikitext', 'wikitext-2-raw-v1')
         else:
             # Try to load any dataset by name
-            dataset = load_dataset(config['data']['dataset_name'])
+            if dataset_config:
+                dataset = load_dataset(dataset_name, dataset_config)
+            else:
+                dataset = load_dataset(dataset_name)
+        
+        print(f"✅ Dataset loaded successfully")
+        
     except Exception as e:
-        print(f"Error loading dataset: {e}")
-        print("Falling back to wikitext-2 for testing...")
-        dataset = load_dataset('wikitext', 'wikitext-2-raw-v1')
+        print(f"❌ Error loading dataset '{dataset_name}': {e}")
+        print(f"   Falling back to wikitext-2 for testing...")
+        try:
+            dataset = load_dataset('wikitext', 'wikitext-2-raw-v1')
+            print(f"✅ Fallback dataset loaded: wikitext-2")
+        except Exception as e2:
+            print(f"❌ Critical error: Could not load fallback dataset: {e2}")
+            raise RuntimeError("Failed to load any dataset. Please check your internet connection and HuggingFace access.")
     
     # Filter out empty texts
     def filter_empty(example):
         return len(example['text'].strip()) > 0
     
+    print("Filtering empty examples...")
     dataset = dataset.filter(filter_empty)
     
-    print(f"Dataset loaded:")
-    print(f"  Train: {len(dataset[config['data']['train_split']])} examples")
-    if config['data']['val_split'] in dataset:
-        print(f"  Validation: {len(dataset[config['data']['val_split']])} examples")
-    if config['data']['test_split'] in dataset:
-        print(f"  Test: {len(dataset[config['data']['test_split']])} examples")
+    # Validate splits exist
+    train_split = config['data']['train_split']
+    val_split = config['data']['val_split']
+    test_split = config['data']['test_split']
+    
+    if train_split not in dataset:
+        print(f"⚠️  Train split '{train_split}' not found in dataset")
+        print(f"   Available splits: {list(dataset.keys())}")
+        # Use first available split
+        train_split = list(dataset.keys())[0]
+        print(f"   Using '{train_split}' as train split")
+    
+    print(f"\n✅ Dataset splits:")
+    print(f"  Train ({train_split}): {len(dataset[train_split]):,} examples")
+    
+    if val_split in dataset:
+        print(f"  Validation ({val_split}): {len(dataset[val_split]):,} examples")
+    else:
+        print(f"  Validation: Not available (will use train split)")
+        val_split = train_split
+    
+    if test_split in dataset:
+        print(f"  Test ({test_split}): {len(dataset[test_split]):,} examples")
+    else:
+        print(f"  Test: Not available (will use train split)")
+        test_split = train_split
     
     # Create datasets
+    print("\nCreating PyTorch datasets...")
     train_dataset = TextDataset(
-        dataset[config['data']['train_split']],
+        dataset[train_split],
         tokenizer,
         config['data']['max_length']
     )
     
     val_dataset = None
-    if config['data']['val_split'] in dataset:
+    if val_split in dataset and val_split != train_split:
         val_dataset = TextDataset(
-            dataset[config['data']['val_split']],
+            dataset[val_split],
             tokenizer,
             config['data']['max_length']
         )
     
     test_dataset = None
-    if config['data']['test_split'] in dataset:
+    if test_split in dataset and test_split != train_split:
         test_dataset = TextDataset(
-            dataset[config['data']['test_split']],
+            dataset[test_split],
             tokenizer,
             config['data']['max_length']
         )
+    
+    # Get data loading parameters
+    num_workers = config['data'].get('num_workers', 0)
+    pin_memory = config['data'].get('pin_memory', False)
+    
+    print(f"\nDataLoader settings:")
+    print(f"  Batch size: {config['training']['batch_size']}")
+    print(f"  Num workers: {num_workers}")
+    print(f"  Pin memory: {pin_memory}")
+    print(f"  Max length: {config['data']['max_length']}")
     
     # Create dataloaders
     train_loader = DataLoader(
         train_dataset,
         batch_size=config['training']['batch_size'],
         shuffle=True,
-        num_workers=0,  # Use 0 for Mac to avoid multiprocessing issues
+        num_workers=num_workers,
         collate_fn=lambda x: collate_fn(x, config['data']['max_length']),
-        pin_memory=False  # Disable for CPU
+        pin_memory=pin_memory
     )
     
     val_loader = None
@@ -169,9 +237,9 @@ def load_data(config):
             val_dataset,
             batch_size=config['training']['batch_size'],
             shuffle=False,
-            num_workers=0,  # Use 0 for Mac
+            num_workers=num_workers,
             collate_fn=lambda x: collate_fn(x, config['data']['max_length']),
-            pin_memory=False
+            pin_memory=pin_memory
         )
     
     test_loader = None
@@ -180,10 +248,17 @@ def load_data(config):
             test_dataset,
             batch_size=config['training']['batch_size'],
             shuffle=False,
-            num_workers=0,  # Use 0 for Mac
+            num_workers=num_workers,
             collate_fn=lambda x: collate_fn(x, config['data']['max_length']),
-            pin_memory=False
+            pin_memory=pin_memory
         )
+    
+    print(f"\n✅ Data loading complete!")
+    print(f"  Train batches: {len(train_loader):,}")
+    if val_loader:
+        print(f"  Val batches: {len(val_loader):,}")
+    if test_loader:
+        print(f"  Test batches: {len(test_loader):,}")
     
     return train_loader, val_loader, test_loader, tokenizer
 

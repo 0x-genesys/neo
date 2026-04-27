@@ -133,16 +133,40 @@ class Trainer:
         return optimizer
     
     def _create_scheduler(self):
-        """Create learning rate scheduler."""
-        if self.config['scheduler']['type'] == 'cosine':
-            from torch.optim.lr_scheduler import CosineAnnealingLR
-            scheduler = CosineAnnealingLR(
-                self.optimizer,
-                T_max=self.config['training']['max_steps'],
-                eta_min=self.config['scheduler']['min_lr']
-            )
-        else:
-            scheduler = None
+        """Create learning rate scheduler with warmup support."""
+        import math
+        from torch.optim.lr_scheduler import LambdaLR
+        
+        warmup_steps = self.config['training']['warmup_steps']
+        max_steps = self.config['training']['max_steps']
+        min_lr = self.config['scheduler']['min_lr']
+        max_lr = self.config['training']['learning_rate']
+        min_lr_ratio = min_lr / max_lr
+        
+        def lr_lambda(step):
+            """
+            Learning rate schedule with linear warmup and cosine decay.
+            
+            Phase 1 (0 to warmup_steps): Linear warmup from 0 to 1.0
+            Phase 2 (warmup_steps to max_steps): Cosine decay from 1.0 to min_lr_ratio
+            """
+            if step < warmup_steps:
+                # Linear warmup: gradually increase from 0 to 1
+                return step / max(1, warmup_steps)
+            else:
+                # Cosine decay: smoothly decrease from 1 to min_lr_ratio
+                progress = (step - warmup_steps) / max(1, max_steps - warmup_steps)
+                progress = min(progress, 1.0)  # Clamp to [0, 1]
+                cosine_decay = 0.5 * (1 + math.cos(math.pi * progress))
+                return min_lr_ratio + (1 - min_lr_ratio) * cosine_decay
+        
+        scheduler = LambdaLR(self.optimizer, lr_lambda=lr_lambda)
+        
+        print(f"✅ Learning rate scheduler created:")
+        print(f"   - Warmup steps: {warmup_steps}")
+        print(f"   - Max steps: {max_steps}")
+        print(f"   - Max LR: {max_lr:.2e}")
+        print(f"   - Min LR: {min_lr:.2e}")
         
         return scheduler
     

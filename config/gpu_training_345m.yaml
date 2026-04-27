@@ -1,0 +1,96 @@
+# GPU Training Configuration - 345M Parameter Model (GPT-2 Medium)
+# Medium-scale model for production applications
+# Optimized for A100 GPU (40GB VRAM)
+
+model:
+  vocab_size: 100277  # GPT-4 tokenizer
+  d_model: 1024        # GPT-2 Medium standard
+  num_heads: 16        # head_dim = 1024/16 = 64
+  num_layers: 24       # 2x GPT-2 Small
+  context_length: 2048 # 4x base model
+  dropout: 0.1
+  use_gradient_checkpointing: true  # Required for memory efficiency
+
+# Training Configuration
+training:
+  batch_size: 8        # Reduced due to larger model
+  gradient_accumulation_steps: 16  # Effective batch = 128
+  max_epochs: 1
+  max_steps: 200000    # 2x more than 124M model
+  learning_rate: 2.0e-4  # Slightly lower for stability
+  weight_decay: 0.1
+  warmup_steps: 4000   # 2% of total steps
+  max_grad_norm: 1.0
+  eval_interval: 2000
+  save_interval: 5000
+  log_interval: 10
+
+# Data Configuration
+data:
+  dataset_name: "openwebtext"  # 8B tokens
+  dataset_config: null
+  train_split: "train"
+  val_split: "train"
+  test_split: "train"
+  max_length: 2048
+  num_workers: 4
+  pin_memory: true
+
+# Tokenizer Configuration
+tokenizer:
+  type: "Xenova/gpt-4"  # GPT-4 tokenizer (100k vocab)
+  vocab_size: 100277
+
+# Optimization
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  type: "cosine_with_warmup"
+  min_lr: 2.0e-5
+
+# System Configuration
+system:
+  device: "cuda"
+  mixed_precision: true  # Essential
+  compile_model: true    # 20% speedup
+  seed: 42
+
+# Checkpointing
+checkpoint:
+  save_dir: "checkpoints/gpu_training_345m"
+  resume_from: null
+  save_best_only: false
+
+# Logging
+logging:
+  use_wandb: false
+  wandb_project: "transformer-345m"
+  wandb_entity: null
+  log_dir: "logs/gpu_training_345m"
+
+# Generation
+generation:
+  max_new_tokens: 200
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  num_samples: 3
+
+# ============================================================================
+# MODEL SPECIFICATIONS
+# ============================================================================
+# Parameters: ~345M
+# Architecture: GPT-2 Medium
+# Memory (FP16): ~12GB (model + optimizer + activations)
+# GPU Required: A100 40GB or better
+# Training Time: 3-5 days on A100
+# Dataset: OpenWebText (8B tokens)
+# Chinchilla Optimal: 345M × 20 = 6.9B tokens
+# Actual Training: 200K steps × 8 × 2048 × 16 = 52B tokens (7.5× optimal)
+# Expected Loss: ~0.8-1.0
+# Quality: Very good for most tasks
+# Cost: ~$200-400 on cloud GPU
+# ============================================================================

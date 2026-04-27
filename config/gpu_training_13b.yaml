@@ -1,0 +1,119 @@
+# GPU Training Configuration - 13B Parameter Model (GPT-3 Large)
+# GPT-3 Large scale for commercial products and research
+# Requires large multi-GPU setup (16-32x A100 80GB)
+
+model:
+  vocab_size: 100277  # GPT-4 tokenizer
+  d_model: 5120        # GPT-3 Large standard
+  num_heads: 40        # head_dim = 5120/40 = 128
+  num_layers: 40
+  context_length: 2048
+  dropout: 0.1
+  use_gradient_checkpointing: true  # Required
+
+# Training Configuration
+training:
+  batch_size: 1        # Per GPU
+  gradient_accumulation_steps: 512  # Effective batch = 512 (single GPU) or 8192 (16 GPUs)
+  max_epochs: 1
+  max_steps: 2000000   # 2M steps for quality
+  learning_rate: 6.0e-5
+  weight_decay: 0.1
+  warmup_steps: 30000  # 1.5% of total steps
+  max_grad_norm: 1.0
+  eval_interval: 10000
+  save_interval: 50000
+  log_interval: 10
+
+# Data Configuration
+data:
+  dataset_name: "togethercomputer/RedPajama-Data-1T"  # 1T tokens
+  dataset_config: "default"
+  train_split: "train"
+  val_split: "train"
+  test_split: "train"
+  max_length: 2048
+  num_workers: 8
+  pin_memory: true
+
+# Tokenizer Configuration
+tokenizer:
+  type: "Xenova/gpt-4"  # GPT-4 tokenizer (100k vocab)
+  vocab_size: 100277
+
+# Optimization
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  type: "cosine_with_warmup"
+  min_lr: 6.0e-6
+
+# System Configuration
+system:
+  device: "cuda"
+  mixed_precision: true  # Essential
+  compile_model: true
+  seed: 42
+
+# Checkpointing
+checkpoint:
+  save_dir: "checkpoints/gpu_training_13b"
+  resume_from: null
+  save_best_only: false
+
+# Logging
+logging:
+  use_wandb: true  # Essential for monitoring
+  wandb_project: "transformer-13b"
+  wandb_entity: null
+  log_dir: "logs/gpu_training_13b"
+
+# Generation
+generation:
+  max_new_tokens: 200
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  num_samples: 3
+
+# ============================================================================
+# MODEL SPECIFICATIONS
+# ============================================================================
+# Parameters: ~13B
+# Architecture: GPT-3 Large
+# Memory (FP16): ~400GB (model + optimizer + activations)
+# GPU Required: 16-32x A100 80GB
+# Training Time: 3-6 months on 32x A100
+# Dataset: RedPajama (1T tokens) or custom curated data (5-10TB)
+# Chinchilla Optimal: 13B × 20 = 260B tokens
+# Actual Training: 2M steps × 1 × 2048 × 512 = 2.1T tokens (8× optimal)
+# Expected Loss: ~0.3-0.5
+# Quality: Excellent, GPT-3 level
+# Cost: ~$200,000-500,000 on cloud GPU
+#
+# CRITICAL REQUIREMENTS:
+# 1. FSDP (Fully Sharded Data Parallel) or DeepSpeed ZeRO Stage 3
+# 2. CPU offloading required for optimizer states
+# 3. Pipeline parallelism highly recommended
+# 4. Tensor parallelism optional but helpful
+# 5. High-bandwidth interconnect essential (NVLink, InfiniBand)
+# 6. Gradient checkpointing required
+# 7. Flash Attention highly recommended
+#
+# Launch command (single node, 16 GPUs):
+# torchrun --nproc_per_node=16 --nnodes=1 train.py --config config/gpu_training_13b.yaml
+#
+# Launch command (multi-node, e.g., 4 nodes × 8 GPUs = 32 GPUs):
+# On each node:
+# torchrun --nproc_per_node=8 --nnodes=4 --node_rank=<0,1,2,3> \
+#   --master_addr=<master_node_ip> --master_port=29500 \
+#   train.py --config config/gpu_training_13b.yaml
+#
+# Recommended infrastructure:
+# - AWS: p4d.24xlarge instances (8x A100 80GB per instance)
+# - GCP: a2-ultragpu-8g instances (8x A100 80GB per instance)
+# - Azure: ND96asr_v4 instances (8x A100 80GB per instance)
+# ============================================================================

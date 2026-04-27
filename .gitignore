@@ -30,3 +30,4 @@ dmypy.json
 .vscode/
 .idea/
 checkpoints/
+logs/
