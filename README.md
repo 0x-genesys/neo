@@ -8,18 +8,32 @@ Production-ready transformer training system with comprehensive documentation an
 # Setup
 ./setup.sh
 
-# Train small model (testing)
+# Train small model (testing - 1 hour)
 ./venv/bin/python train.py --config config/quick_start.yaml
 
-# Train production model
+# Train on CPU (10 hours)
 ./venv/bin/python train.py --config config/production_training.yaml
+
+# Train on GPU - RECOMMENDED (3 hours, high quality)
+python train.py --config config/gpu_training.yaml
 
 # Generate text
 ./venv/bin/python src/inference.py \
-  --model checkpoints/production/best_model.pt \
+  --model checkpoints/gpu_training/best_model.pt \
   --prompt "Your prompt here" \
   --max-tokens 100
 ```
+
+## Configuration Options
+
+| Config | Hardware | Time | Quality | Use Case |
+|--------|----------|------|---------|----------|
+| `quick_start.yaml` | CPU | 1h | Basic | Testing |
+| `production_training.yaml` | CPU | 10h | Okay | No GPU |
+| **`gpu_training.yaml`** | **T4 GPU** | **3h** | **Good** | **Recommended** |
+| `model_config.yaml` | A100 | 20h | Excellent | Production |
+
+See [docs/CONFIG_COMPARISON.md](docs/CONFIG_COMPARISON.md) for detailed comparison.
 
 ## Current Status
 

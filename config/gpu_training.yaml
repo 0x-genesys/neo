@@ -1,0 +1,98 @@
+# GPU Training Configuration
+# Optimized for T4 GPU (16GB VRAM) - targets 60-70% GPU utilization
+# Expected time: 2-4 hours on T4 GPU for high-quality results
+
+model:
+  vocab_size: 50257  # Will be set by tokenizer
+  d_model: 256       # Keep same as production (16M params)
+  num_heads: 8       # Keep same
+  num_layers: 4      # Keep same
+  context_length: 256  # Keep same for now
+  dropout: 0.1
+  use_flash_attention: false
+
+# Training Configuration
+training:
+  batch_size: 32     # 4x larger than CPU (GPU can handle it)
+  gradient_accumulation_steps: 4  # Effective batch size = 128
+  max_epochs: 10     # Multiple epochs through dataset
+  max_steps: 50000   # 5x more than CPU version (better convergence)
+  learning_rate: 3.0e-4
+  weight_decay: 0.01
+  warmup_steps: 1000  # More warmup for stability
+  max_grad_norm: 1.0
+  eval_interval: 500  # Validate every 500 steps
+  save_interval: 1000  # Save checkpoint every 1000 steps
+  log_interval: 10
+
+# Data Configuration
+data:
+  dataset_name: "wikitext"
+  dataset_config: "wikitext-103-raw-v1"  # Larger dataset (100x more data than wikitext-2)
+  train_split: "train" 
+  val_split: "validation"
+  test_split: "test"
+  max_length: 256
+  num_workers: 4  # Multi-threaded data loading for GPU
+  pin_memory: true  # Faster GPU transfer
+  
+# Tokenizer Configuration
+tokenizer:
+  type: "gpt2"
+  vocab_size: 50257
+  
+# Optimization
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  type: "cosine"
+  min_lr: 3.0e-5
+
+# System Configuration
+system:
+  device: "cuda"  # Force CUDA
+  mixed_precision: true  # Enable FP16 for 2x speedup
+  compile_model: false  # Can enable for PyTorch 2.0+ (20% speedup)
+  seed: 42
+  
+# Checkpointing
+checkpoint:
+  save_dir: "checkpoints/gpu_training"
+  resume_from: null
+  save_best_only: false
+  
+# Logging
+logging:
+  use_wandb: false
+  wandb_project: "transformer-gpu"
+  wandb_entity: null
+  log_dir: "logs/gpu_training"
+  
+# Generation (for validation)
+generation:
+  max_new_tokens: 100
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  num_samples: 3
+
+# GPU Optimization Notes:
+# - batch_size: 32 (4x CPU) - utilizes GPU parallelism
+# - gradient_accumulation: 4 - effective batch = 128 (good for convergence)
+# - max_steps: 50000 - enough for good convergence on wikitext-103
+# - wikitext-103: ~100M tokens (vs wikitext-2's ~2M tokens)
+# - mixed_precision: true - 2x faster, 2x less memory
+# - num_workers: 4 - parallel data loading
+# - pin_memory: true - faster CPU->GPU transfer
+#
+# Expected GPU utilization: 60-70%
+# Expected training time: 2-4 hours on T4
+# Expected final loss: ~0.3-0.4 (much better than CPU's 0.7)
+#
+# To increase GPU utilization further (if needed):
+# - Increase batch_size to 48 or 64
+# - Increase context_length to 512
+# - Enable compile_model: true (PyTorch 2.0+)
