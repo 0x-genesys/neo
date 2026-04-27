@@ -1,0 +1,76 @@
+# Model Architecture Configuration
+model:
+  vocab_size: 50257  # Will be set by tokenizer
+  d_model: 512
+  num_heads: 8
+  num_layers: 6
+  context_length: 512
+  dropout: 0.1
+  use_flash_attention: false
+
+# Training Configuration
+training:
+  batch_size: 32
+  gradient_accumulation_steps: 4  # Effective batch size = 32 * 4 = 128
+  max_epochs: 10
+  max_steps: 100000
+  learning_rate: 3.0e-4
+  weight_decay: 0.01
+  warmup_steps: 2000
+  max_grad_norm: 1.0
+  eval_interval: 500
+  save_interval: 1000
+  log_interval: 10
+
+# Data Configuration
+data:
+  dataset_name: "wikitext"  # Options: wikitext, openwebtext, bookcorpus, etc.
+  dataset_config: "wikitext-103-raw-v1"  # or wikitext-2-raw-v1 for smaller
+  train_split: "train"
+  val_split: "validation"
+  test_split: "test"
+  max_length: 512
+  num_workers: 4
+  
+# Tokenizer Configuration
+tokenizer:
+  type: "gpt2"  # Use pretrained GPT-2 tokenizer
+  vocab_size: 50257
+  
+# Optimization
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  type: "cosine"
+  min_lr: 3.0e-5
+
+# System Configuration
+system:
+  device: "auto"  # auto, cuda, mps, or cpu (auto will select best available)
+  mixed_precision: true  # Use automatic mixed precision (AMP) - auto-disabled for incompatible devices
+  compile_model: false  # Use torch.compile (PyTorch 2.0+)
+  seed: 42
+  
+# Checkpointing
+checkpoint:
+  save_dir: "checkpoints"
+  resume_from: null  # Path to checkpoint to resume from
+  save_best_only: false
+  
+# Logging
+logging:
+  use_wandb: false  # Set to true to use Weights & Biases
+  wandb_project: "transformer-training"
+  wandb_entity: null
+  log_dir: "logs"
+  
+# Generation (for validation)
+generation:
+  max_new_tokens: 100
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  num_samples: 3

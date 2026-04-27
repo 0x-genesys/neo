@@ -1,0 +1,32 @@
+# Core ML libraries
+numpy<2.0  # Must be <2.0 for PyTorch compatibility
+pandas==3.0.2
+scikit-learn==1.8.0
+
+# Visualization
+matplotlib==3.10.8
+seaborn==0.13.2
+
+# PyTorch (for Mac - MPS support)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Transformers and NLP
+transformers>=4.30.0
+datasets>=2.14.0
+tokenizers>=0.13.0
+sentencepiece>=0.1.99
+
+# Training utilities
+tqdm>=4.65.0
+pyyaml>=6.0
+tensorboard>=2.13.0
+wandb>=0.15.0
+
+# HuggingFace Hub
+huggingface-hub>=0.16.0
+
+# Development
+pytest>=7.0.0
+black>=23.0.0
+flake8>=6.0.0

@@ -1,0 +1,18 @@
+{
+  "name": "python-ml-project",
+  "version": "1.0.0",
+  "description": "Python machine learning project with numpy, scikit-learn, pandas, matplotlib, and seaborn",
+  "scripts": {
+    "install-deps": "pip install -r requirements.txt",
+    "activate": "echo 'Run: source venv/bin/activate'",
+    "freeze": "pip freeze > requirements.txt",
+    "test": "python test_setup.py",
+    "clean": "pip uninstall -y ml_dtypes opt_einsum",
+    "setup": "python3 -m venv venv && npm run install-deps"
+  },
+  "keywords": ["python", "machine-learning", "data-science", "ml"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}
