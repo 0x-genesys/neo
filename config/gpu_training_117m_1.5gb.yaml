@@ -1,56 +1,83 @@
-# GPU Training Configuration - 162M Parameter Model (1.5GB GPU Optimized)
-# Optimized for GPUs with ~1.5GB VRAM (GTX 1050, MX150, mobile GPUs, etc.)
-# This config uses VERY small batch sizes and aggressive memory optimization
+# ============================================================================
+# GPU Training Configuration - 117M Model with Balanced Dataset (1.5GB GPU)
+# ============================================================================
+#
+# This configuration is optimized for training a 117M parameter model on
+# a 300M token "Balanced Logic & Chat" dataset using GPUs with ~1.5GB VRAM.
+#
+# Dataset Composition:
+#   - WikiText-103: 102M tokens (34%) - Encyclopedic knowledge
+#   - UltraChat: 150M tokens (50%) - Conversational AI
+#   - The Stack: 48M tokens (16%) - Code reasoning (Python/Java)
+#   - DailyDialog: 10M tokens (3%) - Natural dialogue
+#   - TOTAL: 300M tokens
+#
+# Training Strategy:
+#   - 8 epochs × 300M tokens = 2.4B total tokens
+#   - 36,621 steps (2.4B / 65,536 tokens per step)
+#   - Cosine learning rate schedule with warmup
+#   - Strong regularization to prevent memorization
+#
+# Memory Optimization:
+#   - Gradient checkpointing enabled
+#   - Mixed precision (FP16) training
+#   - Optimized batch size and gradient accumulation
+#
+# Expected Results:
+#   - Training time: 10-20 hours (1.5GB GPU) or 1-2 hours (larger GPU)
+#   - Final loss: ~2.5-3.0 (depending on data quality)
+#   - Good performance on both logic and conversational tasks
+#
+# ============================================================================
 
 model:
-  vocab_size: 100277  # GPT-4 tokenizer - will be set by tokenizer
+  vocab_size: 100277  # tiktoken cl100k_base (GPT-4) - will be set by tokenizer
   d_model: 768        # 3x increase from 256 (GPT-2 Small standard)
   num_heads: 12       # Maintains head_dim = 768/12 = 64 (optimal)
   num_layers: 12      # 3x increase from 4 (more reasoning depth)
   context_length: 256 # Reduced from 512 to save memory
-  dropout: 0.1
+  dropout: 0.12       # Lowered from 0.15 due to more unique data
   use_flash_attention: false
   use_gradient_checkpointing: true  # CRITICAL for 1.5GB GPU
 
-# Training Configuration - Optimized for 1.5GB GPU
+# Training Configuration - Optimized for 1.5GB GPU with 300M Token Dataset
 training:
-  batch_size: 1        # MINIMUM (can't go lower)
-  gradient_accumulation_steps: 128  # Very high to maintain effective batch = 128
-  max_epochs: 1
-  max_steps: 36621
-  learning_rate: 2.5e-4
-  weight_decay: 0.1
-  warmup_steps: 2000
+  batch_size: 16       # Batch size per GPU
+  gradient_accumulation_steps: 8  # Effective batch = 128 (16 × 8)
+  max_epochs: 8        # 8 epochs × 300M tokens = 2.4B total tokens
+  max_steps: 36621     # Total tokens (2.4B) / tokens-per-step (65,536)
+  learning_rate: 2.0e-4  # Optimized for 124M model with diverse data
+  weight_decay: 0.15   # Firm regularization to prevent memorization
+  warmup_steps: 1500   # ~4% of total steps for vocab stabilization
   max_grad_norm: 1.0
-  eval_interval: 1000  # Very infrequent (saves memory during validation)
-  save_interval: 1000  # Very infrequent (saves I/O)
-  log_interval: 100    # Less frequent logging (saves I/O)
+  dropout: 0.12        # Lowered from 0.15 due to more unique data
+  eval_interval: 1000  # Evaluate every 1000 steps
+  save_interval: 1000  # Save checkpoint every 1000 steps
+  log_interval: 100    # Log every 100 steps
 
-# Data Configuration
+# Data Configuration - Binary Dataset
 data:
-  dataset_name: "openwebtext"
-  dataset_config: null
-  train_split: "train"
-  val_split: "train"
-  test_split: "train"
-  max_length: 256      # Match context_length (reduced from 512)
-  num_workers: 0       # CRITICAL: No multiprocessing (saves memory)
+  dataset_type: "binary"  # Use binary format for efficiency
+  train_file: "data/balanced_300m/train.bin"
+  val_file: "data/balanced_300m/val.bin"
+  max_length: 256      # Match context_length
+  num_workers: 0       # No multiprocessing (saves memory)
   pin_memory: false    # Disabled to save memory
 
 # Tokenizer Configuration
 tokenizer:
-  type: "Xenova/gpt-4"  # GPT-4 tokenizer (100k vocab)
-  vocab_size: 100277
+  type: "tiktoken"     # Use tiktoken cl100k_base (GPT-4)
+  vocab_size: 100277   # cl100k_base vocab size
 
-# Optimization
+# Optimization - AdamW with Cosine Decay
 optimizer:
   type: "adamw"
   betas: [0.9, 0.95]
   eps: 1.0e-8
 
 scheduler:
-  type: "cosine_with_warmup"
-  min_lr: 2.5e-5
+  type: "cosine"       # Cosine annealing schedule
+  min_lr: 2.0e-5       # 10% of max_lr (2.0e-4)
 
 # System Configuration
 system:
@@ -61,16 +88,16 @@ system:
 
 # Checkpointing
 checkpoint:
-  save_dir: "checkpoints/gpu_training_117m_1.5gb"
+  save_dir: "checkpoints/gpu_training_117m_1.5gb_balanced"
   resume_from: null
   save_best_only: false
 
 # Logging
 logging:
   use_wandb: false
-  wandb_project: "transformer-117m-1.5gb"
+  wandb_project: "transformer-117m-balanced"
   wandb_entity: null
-  log_dir: "logs/gpu_training_117m_1.5gb"
+  log_dir: "logs/gpu_training_117m_1.5gb_balanced"
 
 # Generation
 generation:
