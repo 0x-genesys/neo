@@ -43,10 +43,13 @@ class Trainer:
         
         # Logging
         self.writer = None
+        self.log_buffer = []  # Buffer for batched logging
         if config['logging']['log_dir']:
             log_dir = Path(config['logging']['log_dir'])
             log_dir.mkdir(parents=True, exist_ok=True)
-            self.writer = SummaryWriter(log_dir)
+            # Reduce flush frequency to save I/O
+            self.writer = SummaryWriter(log_dir, flush_secs=300)  # Flush every 5 minutes instead of default 120s
+            print(f"TensorBoard logging to: {log_dir} (flush every 5 min)")
         
         # Checkpointing
         self.checkpoint_dir = Path(config['checkpoint']['save_dir'])
@@ -71,11 +74,53 @@ class Trainer:
         print(f"Mixed precision training: {self.use_amp}")
     
     def _setup_device(self):
-        """Setup training device with proper detection."""
+        """Setup training device with proper detection and memory checking."""
         from .device_utils import select_device, check_mixed_precision_support, print_device_recommendations
         
         device_name = self.config['system']['device']
         device = select_device(device_name, verbose=True)
+        
+        # Check GPU memory if using CUDA
+        if device.type == 'cuda':
+            import torch.cuda as cuda
+            total_memory = cuda.get_device_properties(device).total_memory / 1e9  # GB
+            print(f"\n🔍 GPU Memory Check:")
+            print(f"   Total memory: {total_memory:.2f}GB")
+            
+            # Estimate model memory requirements
+            model_params = sum(p.numel() for p in self.model.parameters())
+            model_memory_gb = model_params * 2 / 1e9  # FP16
+            optimizer_memory_gb = model_params * 8 / 1e9  # Adam states
+            
+            batch_size = self.config['training']['batch_size']
+            context_length = self.config['model']['context_length']
+            d_model = self.config['model']['d_model']
+            num_layers = self.config['model']['num_layers']
+            
+            # Rough activation estimate (with gradient checkpointing)
+            if self.config['model'].get('use_gradient_checkpointing', False):
+                activation_memory_gb = batch_size * context_length * d_model * num_layers * 2 / 1e9  # Reduced by checkpointing
+            else:
+                activation_memory_gb = batch_size * context_length * d_model * num_layers * 4 * 2 / 1e9
+            
+            estimated_memory = model_memory_gb + optimizer_memory_gb + activation_memory_gb + 1.5  # +1.5GB buffer
+            
+            print(f"   Estimated usage: {estimated_memory:.2f}GB")
+            print(f"     - Model (FP16): {model_memory_gb:.2f}GB")
+            print(f"     - Optimizer: {optimizer_memory_gb:.2f}GB")
+            print(f"     - Activations: {activation_memory_gb:.2f}GB")
+            print(f"     - Buffer: 1.50GB")
+            
+            if estimated_memory > total_memory * 0.9:
+                print(f"\n⚠️  WARNING: Estimated memory ({estimated_memory:.1f}GB) is close to GPU limit ({total_memory:.1f}GB)")
+                print(f"   Recommendations:")
+                print(f"   1. Reduce batch_size (current: {batch_size})")
+                print(f"   2. Enable gradient_checkpointing (current: {self.config['model'].get('use_gradient_checkpointing', False)})")
+                print(f"   3. Reduce context_length (current: {context_length})")
+                print(f"   4. Use config: gpu_training_117m_15gb.yaml for 15GB GPUs")
+                print(f"\n   Consider using: python train.py --config config/gpu_training_117m_15gb.yaml")
+            else:
+                print(f"   ✅ Memory estimate looks good ({estimated_memory/total_memory*100:.0f}% of GPU)")
         
         # Check mixed precision support
         if self.config['system']['mixed_precision']:

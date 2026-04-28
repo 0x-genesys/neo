@@ -6,6 +6,7 @@ from torch.utils.data import Dataset, DataLoader
 from datasets import load_dataset
 from transformers import AutoTokenizer
 import numpy as np
+from pathlib import Path
 
 
 class TextDataset(Dataset):
@@ -22,12 +23,13 @@ class TextDataset(Dataset):
     def __getitem__(self, idx):
         text = self.data[idx]['text']
         
-        # Tokenize
-        tokens = self.tokenizer.encode(text, add_special_tokens=True)
-        
-        # Truncate or pad
-        if len(tokens) > self.max_length:
-            tokens = tokens[:self.max_length]
+        # Tokenize with truncation to avoid sequence length warnings
+        tokens = self.tokenizer.encode(
+            text, 
+            add_special_tokens=True,
+            truncation=True,
+            max_length=self.max_length
+        )
         
         # Convert to tensor
         tokens = torch.tensor(tokens, dtype=torch.long)
@@ -76,12 +78,17 @@ def collate_fn(batch, max_length):
 
 def load_data(config):
     """
-    Load and prepare datasets.
+    Load and prepare datasets with local caching support.
     
     Returns:
         train_loader, val_loader, test_loader, tokenizer
     """
     print(f"Loading dataset: {config['data']['dataset_name']}")
+    
+    # Setup cache directory
+    cache_dir = Path('datasets')
+    cache_dir.mkdir(exist_ok=True)
+    print(f"Dataset cache directory: {cache_dir.absolute()}")
     
     # Load tokenizer with error handling
     tokenizer_type = config['tokenizer']['type']
@@ -112,42 +119,43 @@ def load_data(config):
         print(f"⚠️  Vocab size mismatch: expected {expected_vocab:,}, got {actual_vocab_size:,}")
         print(f"   Using actual vocab size: {actual_vocab_size:,}")
     
-    # Load dataset from HuggingFace with robust error handling
+    # Load dataset from HuggingFace with robust error handling and caching
     dataset = None
     dataset_name = config['data']['dataset_name']
     dataset_config = config['data'].get('dataset_config')
     
     try:
         print(f"Loading dataset: {dataset_name}" + (f" ({dataset_config})" if dataset_config else ""))
+        print(f"   Cache will be stored in: {cache_dir / dataset_name}")
         
         if dataset_name == 'wikitext':
-            dataset = load_dataset('wikitext', dataset_config or 'wikitext-2-raw-v1')
+            dataset = load_dataset('wikitext', dataset_config or 'wikitext-2-raw-v1', cache_dir=str(cache_dir))
         elif dataset_name == 'openwebtext':
-            dataset = load_dataset('openwebtext')
+            dataset = load_dataset('openwebtext', cache_dir=str(cache_dir))
         elif dataset_name == 'c4' or dataset_name == 'allenai/c4':
-            dataset = load_dataset('allenai/c4', dataset_config or 'en', streaming=False)
+            dataset = load_dataset('allenai/c4', dataset_config or 'en', streaming=False, cache_dir=str(cache_dir))
         elif dataset_name == 'togethercomputer/RedPajama-Data-1T':
             print("⚠️  RedPajama is very large (1TB+). Consider using streaming mode.")
-            dataset = load_dataset(dataset_name, dataset_config or 'default', streaming=False)
+            dataset = load_dataset(dataset_name, dataset_config or 'default', streaming=False, cache_dir=str(cache_dir))
         elif dataset_name == 'bookcorpus':
-            dataset = load_dataset('bookcorpus')
+            dataset = load_dataset('bookcorpus', cache_dir=str(cache_dir))
         elif dataset_name == 'tiny_shakespeare':
             print("⚠️  tiny_shakespeare is deprecated. Using wikitext-2 instead.")
-            dataset = load_dataset('wikitext', 'wikitext-2-raw-v1')
+            dataset = load_dataset('wikitext', 'wikitext-2-raw-v1', cache_dir=str(cache_dir))
         else:
             # Try to load any dataset by name
             if dataset_config:
-                dataset = load_dataset(dataset_name, dataset_config)
+                dataset = load_dataset(dataset_name, dataset_config, cache_dir=str(cache_dir))
             else:
-                dataset = load_dataset(dataset_name)
+                dataset = load_dataset(dataset_name, cache_dir=str(cache_dir))
         
-        print(f"✅ Dataset loaded successfully")
+        print(f"✅ Dataset loaded successfully (cached locally)")
         
     except Exception as e:
         print(f"❌ Error loading dataset '{dataset_name}': {e}")
         print(f"   Falling back to wikitext-2 for testing...")
         try:
-            dataset = load_dataset('wikitext', 'wikitext-2-raw-v1')
+            dataset = load_dataset('wikitext', 'wikitext-2-raw-v1', cache_dir=str(cache_dir))
             print(f"✅ Fallback dataset loaded: wikitext-2")
         except Exception as e2:
             print(f"❌ Critical error: Could not load fallback dataset: {e2}")
@@ -172,17 +180,40 @@ def load_data(config):
         train_split = list(dataset.keys())[0]
         print(f"   Using '{train_split}' as train split")
     
+    # Calculate approximate token counts
+    def estimate_tokens(split_data, tokenizer, sample_size=1000):
+        """Estimate total tokens in dataset by sampling."""
+        sample_size = min(sample_size, len(split_data))
+        total_tokens = 0
+        for i in range(sample_size):
+            text = split_data[i]['text']
+            tokens = tokenizer.encode(text, add_special_tokens=True)
+            total_tokens += len(tokens)
+        avg_tokens_per_example = total_tokens / sample_size
+        estimated_total = int(avg_tokens_per_example * len(split_data))
+        return estimated_total, avg_tokens_per_example
+    
     print(f"\n✅ Dataset splits:")
-    print(f"  Train ({train_split}): {len(dataset[train_split]):,} examples")
+    train_tokens, train_avg = estimate_tokens(dataset[train_split], tokenizer)
+    print(f"  Train ({train_split}):")
+    print(f"    - Examples: {len(dataset[train_split]):,}")
+    print(f"    - Estimated tokens: {train_tokens:,} ({train_tokens/1e9:.2f}B)" if train_tokens > 1e9 else f"    - Estimated tokens: {train_tokens:,} ({train_tokens/1e6:.1f}M)")
+    print(f"    - Avg tokens/example: {train_avg:.0f}")
     
     if val_split in dataset:
-        print(f"  Validation ({val_split}): {len(dataset[val_split]):,} examples")
+        val_tokens, val_avg = estimate_tokens(dataset[val_split], tokenizer, sample_size=100)
+        print(f"  Validation ({val_split}):")
+        print(f"    - Examples: {len(dataset[val_split]):,}")
+        print(f"    - Estimated tokens: {val_tokens:,} ({val_tokens/1e6:.1f}M)")
     else:
         print(f"  Validation: Not available (will use train split)")
         val_split = train_split
     
     if test_split in dataset:
-        print(f"  Test ({test_split}): {len(dataset[test_split]):,} examples")
+        test_tokens, test_avg = estimate_tokens(dataset[test_split], tokenizer, sample_size=100)
+        print(f"  Test ({test_split}):")
+        print(f"    - Examples: {len(dataset[test_split]):,}")
+        print(f"    - Estimated tokens: {test_tokens:,} ({test_tokens/1e6:.1f}M)")
     else:
         print(f"  Test: Not available (will use train split)")
         test_split = train_split

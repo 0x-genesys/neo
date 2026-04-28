@@ -3,16 +3,17 @@
 Comprehensive validation script for all configurations.
 Validates configs, code flows, and resilience.
 """
+import sys
+from pathlib import Path
+
 try:
     import yaml
 except ImportError:
-    print("Installing pyyaml...")
-    import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyyaml"])
-    import yaml
+    print("❌ Error: pyyaml not installed")
+    print("   Please install: pip install pyyaml")
+    print("   Or activate venv: source venv/bin/activate")
+    sys.exit(1)
 
-import sys
-from pathlib import Path
 import torch
 
 # Add src to path

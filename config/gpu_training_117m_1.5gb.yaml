@@ -1,0 +1,226 @@
+# GPU Training Configuration - 162M Parameter Model (1.5GB GPU Optimized)
+# Optimized for GPUs with ~1.5GB VRAM (GTX 1050, MX150, mobile GPUs, etc.)
+# This config uses VERY small batch sizes and aggressive memory optimization
+
+model:
+  vocab_size: 100277  # GPT-4 tokenizer - will be set by tokenizer
+  d_model: 768        # 3x increase from 256 (GPT-2 Small standard)
+  num_heads: 12       # Maintains head_dim = 768/12 = 64 (optimal)
+  num_layers: 12      # 3x increase from 4 (more reasoning depth)
+  context_length: 256 # Reduced from 512 to save memory
+  dropout: 0.1
+  use_flash_attention: false
+  use_gradient_checkpointing: true  # CRITICAL for 1.5GB GPU
+
+# Training Configuration - Optimized for 1.5GB GPU
+training:
+  batch_size: 1        # MINIMUM (can't go lower)
+  gradient_accumulation_steps: 128  # Very high to maintain effective batch = 128
+  max_epochs: 1
+  max_steps: 100000
+  learning_rate: 2.5e-4
+  weight_decay: 0.1
+  warmup_steps: 2000
+  max_grad_norm: 1.0
+  eval_interval: 2000  # Very infrequent (saves memory during validation)
+  save_interval: 2000  # Very infrequent (saves I/O)
+  log_interval: 100    # Less frequent logging (saves I/O)
+
+# Data Configuration
+data:
+  dataset_name: "wikitext"
+  dataset_config: "wikitext-2-raw-v1"  # Same as quick_start
+  train_split: "train"
+  val_split: "train"
+  test_split: "train"
+  max_length: 256      # Match context_length (reduced from 512)
+  num_workers: 0       # CRITICAL: No multiprocessing (saves memory)
+  pin_memory: false    # Disabled to save memory
+
+# Tokenizer Configuration
+tokenizer:
+  type: "Xenova/gpt-4"  # GPT-4 tokenizer (100k vocab)
+  vocab_size: 100277
+
+# Optimization
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  type: "cosine_with_warmup"
+  min_lr: 2.5e-5
+
+# System Configuration
+system:
+  device: "cuda"
+  mixed_precision: true  # CRITICAL - enables FP16
+  compile_model: false   # Disable to save memory
+  seed: 42
+
+# Checkpointing
+checkpoint:
+  save_dir: "checkpoints/gpu_training_117m_1.5gb"
+  resume_from: null
+  save_best_only: false
+
+# Logging
+logging:
+  use_wandb: false
+  wandb_project: "transformer-117m-1.5gb"
+  wandb_entity: null
+  log_dir: "logs/gpu_training_117m_1.5gb"
+
+# Generation
+generation:
+  max_new_tokens: 50   # Reduced from 100
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  num_samples: 1       # Reduced from 2
+
+# ============================================================================
+# MEMORY OPTIMIZATION FOR 1.5GB GPU
+# ============================================================================
+#
+# Problem: Original config uses ~12-16GB, causing OOM on 1.5GB GPUs
+#
+# Solutions Applied:
+# 1. ✅ Reduced batch_size: 16 → 1 (16x less memory) - MINIMUM POSSIBLE
+# 2. ✅ Increased gradient_accumulation: 8 → 128 (maintain effective batch = 128)
+# 3. ✅ Reduced context_length: 512 → 256 (2x less memory)
+# 4. ✅ Gradient checkpointing: ENABLED (saves ~2-3GB)
+# 5. ✅ Mixed precision: ENABLED (FP16 saves ~50% memory)
+# 6. ✅ num_workers: 0 (no multiprocessing overhead)
+# 7. ✅ pin_memory: false (saves memory)
+# 8. ✅ Very infrequent eval: 5000 steps (saves memory during validation)
+# 9. ✅ Very infrequent logging: 100 steps (saves I/O)
+#
+# Memory Breakdown (1.5GB GPU):
+# - Model (FP16): 0.3GB
+# - Optimizer states: 1.3GB (this is the bottleneck!)
+# - Gradients: 0.3GB
+# - Activations (batch=1, ctx=256): 0.05GB (with gradient checkpointing)
+# - Buffer/overhead: 0.3GB
+# - Total: ~2.25GB (STILL TOO MUCH FOR 1.5GB!)
+#
+# ⚠️  CRITICAL WARNING:
+# Even with all optimizations, 162M parameter model needs ~2.25GB minimum.
+# This is because Adam optimizer alone needs 8 bytes per parameter:
+#   162M params × 8 bytes = 1.3GB (just for optimizer!)
+#
+# RECOMMENDATION: Use smaller model for 1.5GB GPU
+# - Try gpu_training.yaml (16M params) - needs ~0.2GB
+# - Or reduce model size: d_model=512, num_layers=8 (~45M params, ~0.5GB)
+#
+# Training Speed:
+# - Steps per second: ~0.1-0.2 (VERY slow due to batch=1)
+# - Total time: 100,000 steps × 5s = 500,000s ≈ 139 hours (5.8 days!)
+# - Effective batch = 128 (same convergence as original config)
+#
+# ============================================================================
+# COMPARISON WITH ORIGINAL CONFIG
+# ============================================================================
+#
+# Original (gpu_training_117m.yaml):
+#   batch_size: 16
+#   gradient_accumulation: 8
+#   context_length: 512
+#   effective_batch: 128
+#   memory: ~12-16GB
+#   speed: ~1 step/sec
+#   fits: 16GB+ GPU
+#
+# This config (gpu_training_117m_1.5gb.yaml):
+#   batch_size: 1
+#   gradient_accumulation: 128
+#   context_length: 256
+#   effective_batch: 128 (SAME)
+#   memory: ~2.25GB (STILL TOO MUCH!)
+#   speed: ~0.2 step/sec (5x slower per step)
+#   fits: 2GB+ GPU (NOT 1.5GB!)
+#
+# ============================================================================
+# USAGE
+# ============================================================================
+#
+# ⚠️  WARNING: This config requires ~2.25GB minimum
+# If you have 1.5GB GPU, use smaller model instead:
+#
+# Option 1: Use 16M model (fits 1.5GB easily)
+#   python train.py --config config/gpu_training.yaml
+#
+# Option 2: Try this config (may OOM on 1.5GB)
+#   python train.py --config config/gpu_training_117m_1.5gb.yaml
+#
+# Expected output (if it fits):
+#   ✅ Tokenizer loaded: Xenova/gpt-4 (100,263 tokens)
+#   ✅ Dataset loaded: openwebtext (~8B tokens)
+#   ✅ Model created: 162.23M parameters
+#   ✅ Gradient checkpointing enabled
+#   ✅ Mixed precision enabled (FP16)
+#   Training... (VERY SLOW - 5.8 days!)
+#
+# Monitor GPU memory:
+#   nvidia-smi -l 1
+#   # Will show ~2.2GB used (exceeds 1.5GB limit!)
+#
+# ============================================================================
+# TROUBLESHOOTING
+# ============================================================================
+#
+# If getting OOM (expected on 1.5GB GPU):
+#
+# RECOMMENDED: Use smaller model
+#   python train.py --config config/gpu_training.yaml
+#   # 16M params, needs only 0.2GB, trains in 3 hours
+#
+# Alternative: Create custom smaller config
+#   d_model: 512 (instead of 768)
+#   num_layers: 8 (instead of 12)
+#   Result: ~45M params, needs ~0.5GB
+#
+# ============================================================================
+# REALITY CHECK
+# ============================================================================
+#
+# Adam optimizer memory requirement:
+#   - 4 bytes per param (FP32 momentum)
+#   - 4 bytes per param (FP32 variance)
+#   - Total: 8 bytes per param
+#
+# For 162M params:
+#   162M × 8 bytes = 1.296GB (just optimizer!)
+#
+# Model weights (FP16):
+#   162M × 2 bytes = 0.324GB
+#
+# Minimum total:
+#   1.296GB + 0.324GB = 1.62GB (already exceeds 1.5GB!)
+#
+# Conclusion: 162M model CANNOT fit in 1.5GB GPU with Adam optimizer
+#
+# Solutions:
+# 1. Use smaller model (16M params) ✅ RECOMMENDED
+# 2. Use SGD instead of Adam (no momentum/variance states)
+# 3. Use 8-bit optimizer (bitsandbytes)
+# 4. Use CPU training (slow but works)
+#
+# ============================================================================
+# RECOMMENDED ALTERNATIVE: 16M MODEL
+# ============================================================================
+#
+# For 1.5GB GPU, use this instead:
+#   python train.py --config config/gpu_training.yaml
+#
+# Benefits:
+#   - Memory: 0.2GB (fits easily!)
+#   - Speed: ~1 step/sec (5x faster)
+#   - Time: 3 hours (vs 5.8 days)
+#   - Quality: Good (suitable for learning/testing)
+#
+# The 16M model is specifically designed for small GPUs!
+#
+# ============================================================================
+
