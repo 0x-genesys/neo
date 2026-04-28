@@ -22,6 +22,18 @@ from tqdm import tqdm
 import random
 from typing import List, Dict, Tuple
 import json
+import os
+
+# Configure tqdm to avoid newline issues
+tqdm.pandas(
+    desc="Processing",
+    unit="items", 
+    dynamic_ncols=True,
+    leave=True,
+    position=0,
+    ascii=False,
+    bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]'
+)
 
 
 class BalancedDatasetBuilder:
@@ -82,7 +94,17 @@ class BalancedDatasetBuilder:
         
         print(f"Processing {len(dataset):,} examples...")
         
-        for example in tqdm(dataset, desc="WikiText-103"):
+        # Use tqdm with proper configuration to avoid newlines
+        progress_bar = tqdm(
+            dataset, 
+            desc="WikiText-103",
+            unit="docs",
+            dynamic_ncols=True,
+            leave=False,
+            position=0
+        )
+        
+        for example in progress_bar:
             text = example['text'].strip()
             
             # Skip empty or very short texts
@@ -100,9 +122,17 @@ class BalancedDatasetBuilder:
             self.stats['wikitext']['docs'] += 1
             self.stats['wikitext']['tokens'] += len(tokens)
             
+            # Update progress bar description with current stats
+            progress_bar.set_postfix({
+                'docs': len(documents),
+                'tokens': f"{total_tokens/1e6:.1f}M"
+            })
+            
             # Stop if we've reached target
             if total_tokens >= self.target_tokens['wikitext']:
                 break
+        
+        progress_bar.close()
         
         print(f"✅ WikiText-103: {len(documents):,} documents, {total_tokens:,} tokens")
         return documents
@@ -128,7 +158,18 @@ class BalancedDatasetBuilder:
         
         print("Processing UltraChat conversations...")
         
-        for example in tqdm(dataset, desc="UltraChat", total=150000):  # Estimate
+        # Use tqdm with proper configuration
+        progress_bar = tqdm(
+            dataset, 
+            desc="UltraChat",
+            total=150000,  # Estimate
+            unit="convs",
+            dynamic_ncols=True,
+            leave=False,
+            position=0
+        )
+        
+        for example in progress_bar:
             try:
                 # UltraChat format: {'data': [user_msg, assistant_msg, ...]}
                 if 'data' not in example or len(example['data']) < 2:
@@ -153,14 +194,23 @@ class BalancedDatasetBuilder:
                     self.stats['ultrachat']['docs'] += 1
                     self.stats['ultrachat']['tokens'] += len(tokens)
                     
+                    # Update progress bar
+                    progress_bar.set_postfix({
+                        'docs': len(documents),
+                        'tokens': f"{total_tokens/1e6:.1f}M"
+                    })
+                    
                     # Stop if we've reached target
                     if total_tokens >= target:
+                        progress_bar.close()
                         print(f"\n✅ Reached target: {total_tokens:,} tokens")
                         return documents
             
             except Exception as e:
                 # Skip malformed examples
                 continue
+        
+        progress_bar.close()
         
         print(f"✅ UltraChat: {len(documents):,} documents, {total_tokens:,} tokens")
         return documents

@@ -9,6 +9,10 @@ from transformers import AutoTokenizer
 import numpy as np
 from pathlib import Path
 import tiktoken
+from .dataset_downloader import DatasetDownloader, configure_tqdm_for_datasets
+
+# Configure tqdm for better progress bars
+configure_tqdm_for_datasets()
 
 
 class TextDataset(Dataset):
@@ -202,13 +206,35 @@ def load_data(config):
 
 
 def load_binary_data(config, tokenizer):
-    """Load pre-tokenized binary datasets."""
+    """Load pre-tokenized binary datasets with automatic download support."""
     print("\n" + "="*80)
     print("Loading Binary Dataset")
     print("="*80)
     
-    train_file = config['data'].get('train_file')
-    val_file = config['data'].get('val_file')
+    # Initialize dataset downloader
+    downloader = DatasetDownloader()
+    
+    try:
+        # Ensure dataset is available (download if necessary)
+        train_file, val_file, stats = downloader.ensure_dataset_available(config)
+        
+        # Update config with actual file paths
+        config['data']['train_file'] = train_file
+        if val_file:
+            config['data']['val_file'] = val_file
+        
+        print(f"\n✅ Dataset files confirmed:")
+        print(f"  Train: {train_file}")
+        if val_file:
+            print(f"  Val: {val_file}")
+        
+    except Exception as e:
+        print(f"❌ Dataset availability check failed: {e}")
+        print(f"\nFalling back to manual file paths...")
+        train_file = config['data'].get('train_file')
+        val_file = config['data'].get('val_file')
+        stats = {}
+    
     max_length = config['data']['max_length']
     vocab_size = config['model']['vocab_size']
     
@@ -259,6 +285,17 @@ def load_binary_data(config, tokenizer):
     print(f"  Train batches: {len(train_loader):,}")
     if val_loader:
         print(f"  Val batches: {len(val_loader):,}")
+    
+    # Print dataset statistics if available
+    if stats:
+        print(f"\n📊 Dataset Statistics:")
+        totals = stats.get('totals', {})
+        if totals:
+            print(f"  Total tokens: {totals.get('tokens', 'Unknown'):,}")
+            print(f"  Total documents: {totals.get('documents', 'Unknown'):,}")
+        
+        tokenizer_info = stats.get('tokenizer', 'Unknown')
+        print(f"  Tokenizer: {tokenizer_info}")
     
     return train_loader, val_loader, None, tokenizer
 

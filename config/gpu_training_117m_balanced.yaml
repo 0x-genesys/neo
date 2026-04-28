@@ -1,0 +1,168 @@
+# ============================================================================
+# GPU Training Configuration - 117M Model with Balanced Dataset
+# ============================================================================
+#
+# This configuration uses the pre-processed 300M token "Balanced Logic & Chat" 
+# dataset from HuggingFace Hub, eliminating the need to build datasets locally.
+#
+# Dataset: 0x-genesys/mix_wiki_code_chat_data_300M_tokens
+# Composition:
+#   - WikiText-103: 102M tokens (34%) - Encyclopedic knowledge
+#   - UltraChat: 198M tokens (66%) - Conversational AI  
+#   - The Stack: 48M tokens (16%) - Code reasoning (Python/Java)
+#   - TOTAL: 300M tokens
+#
+# Features:
+#   - Automatic dataset download from HuggingFace Hub
+#   - No local dataset building required
+#   - Optimized for GPUs with 4GB+ VRAM
+#   - Fixed tqdm progress bar issues
+#
+# ============================================================================
+
+model:
+  vocab_size: 100277  # tiktoken cl100k_base (GPT-4) - will be set by tokenizer
+  d_model: 768        # Standard GPT-2 Small size
+  num_heads: 12       # Maintains head_dim = 768/12 = 64 (optimal)
+  num_layers: 12      # Good depth for reasoning
+  context_length: 512 # Standard context length
+  dropout: 0.12       # Moderate regularization
+  use_flash_attention: false
+  use_gradient_checkpointing: true  # Enable for memory efficiency
+
+# Training Configuration - Optimized for 300M Token Dataset
+training:
+  batch_size: 16       # Batch size per GPU
+  gradient_accumulation_steps: 8  # Effective batch = 128 (16 × 8)
+  max_epochs: 8        # 8 epochs × 300M tokens = 2.4B total tokens
+  max_steps: 36621     # Total tokens (2.4B) / tokens-per-step (65,536)
+  learning_rate: 2.0e-4  # Optimized for 117M model with diverse data
+  weight_decay: 0.15   # Strong regularization to prevent memorization
+  warmup_steps: 1500   # ~4% of total steps for vocab stabilization
+  max_grad_norm: 1.0
+  dropout: 0.12        # Consistent with model dropout
+  eval_interval: 1000  # Evaluate every 1000 steps
+  save_interval: 1000  # Save checkpoint every 1000 steps
+  log_interval: 100    # Log every 100 steps
+
+# Data Configuration - HuggingFace Auto-Download
+data:
+  dataset_type: "binary"  # Use binary format for efficiency
+  train_file: "data/balanced_300m/train.bin"
+  val_file: "data/balanced_300m/val.bin"
+  max_length: 512      # Match context_length
+  num_workers: 4       # Parallel data loading
+  pin_memory: true     # GPU memory optimization
+  
+  # HuggingFace Dataset Auto-Download Configuration
+  huggingface_dataset:
+    repo_id: "0x-genesys/mix_wiki_code_chat_data_300M_tokens"  # Your uploaded dataset
+    dataset_name: "balanced_300m"  # Local folder name in data/
+    auto_download: true  # Automatically download if files are missing
+
+# Tokenizer Configuration
+tokenizer:
+  type: "tiktoken"     # Use tiktoken cl100k_base (GPT-4)
+  vocab_size: 100277   # cl100k_base vocab size
+
+# Optimization - AdamW with Cosine Decay
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  type: "cosine"       # Cosine annealing schedule
+  min_lr: 2.0e-5       # 10% of max_lr (2.0e-4)
+
+# System Configuration
+system:
+  device: "cuda"
+  mixed_precision: true  # Enable FP16 for memory efficiency
+  compile_model: false   # Disable for compatibility
+  seed: 42
+
+# Checkpointing
+checkpoint:
+  save_dir: "checkpoints/gpu_training_117m_balanced"
+  resume_from: null
+  save_best_only: false
+
+# Logging
+logging:
+  use_wandb: false
+  wandb_project: "transformer-117m-balanced"
+  wandb_entity: null
+  log_dir: "logs/gpu_training_117m_balanced"
+
+# HuggingFace Hub Integration
+huggingface_hub:
+  enabled: true  # Set to true to enable automatic uploads
+  repo_id: "0x-genesys/neo_weights_checkpoints"  # Your HF Hub repo
+  upload_best_only: false  # If true, only upload best models; if false, upload all checkpoints
+
+# Generation
+generation:
+  max_new_tokens: 100
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  num_samples: 3
+
+# ============================================================================
+# USAGE INSTRUCTIONS
+# ============================================================================
+#
+# 1. Start training (dataset will auto-download):
+#    python train.py --config config/gpu_training_117m_balanced.yaml
+#
+# 2. The system will automatically:
+#    - Check if data/balanced_300m/ exists
+#    - If missing, download from HuggingFace Hub
+#    - Load the binary dataset for training
+#
+# 3. No need to run prepare_balanced_dataset.py!
+#
+# 4. Monitor training:
+#    - Logs: logs/gpu_training_117m_balanced/
+#    - Checkpoints: checkpoints/gpu_training_117m_balanced/
+#    - TensorBoard: tensorboard --logdir logs/gpu_training_117m_balanced
+#
+# ============================================================================
+# DATASET VARIANTS
+# ============================================================================
+#
+# You can create configs for different dataset sizes:
+#
+# For 117M tokens (smaller, faster):
+#   huggingface_dataset:
+#     repo_id: "0x-genesys/mix_wiki_code_chat_data_117M_tokens"
+#     dataset_name: "balanced_117m"
+#
+# For 1B tokens (larger, better quality):
+#   huggingface_dataset:
+#     repo_id: "0x-genesys/mix_wiki_code_chat_data_1B_tokens"
+#     dataset_name: "balanced_1b"
+#
+# ============================================================================
+# TROUBLESHOOTING
+# ============================================================================
+#
+# If download fails:
+# 1. Check internet connection
+# 2. Verify HuggingFace Hub access
+# 3. Check repository exists: https://huggingface.co/datasets/0x-genesys/mix_wiki_code_chat_data_300M_tokens
+# 4. Manual download:
+#    python -m src.dataset_downloader 0x-genesys/mix_wiki_code_chat_data_300M_tokens --dataset-name balanced_300m
+#
+# If tqdm shows multiple lines:
+# 1. Set environment variable: export DISABLE_TQDM=1
+# 2. Or update terminal/IDE settings for better tqdm support
+#
+# If out of memory:
+# 1. Reduce batch_size to 8 or 4
+# 2. Increase gradient_accumulation_steps proportionally
+# 3. Enable gradient_checkpointing: true
+# 4. Use smaller model config (gpu_training.yaml)
+#
+# ============================================================================

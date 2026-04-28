@@ -35,10 +35,10 @@ model:
   d_model: 768        # 3x increase from 256 (GPT-2 Small standard)
   num_heads: 12       # Maintains head_dim = 768/12 = 64 (optimal)
   num_layers: 12      # 3x increase from 4 (more reasoning depth)
-  context_length: 256 # Reduced from 512 to save memory
+  context_length: 512 # Reduced from 512 to save memory
   dropout: 0.12       # Lowered from 0.15 due to more unique data
   use_flash_attention: false
-  use_gradient_checkpointing: true  # CRITICAL for 1.5GB GPU
+  use_gradient_checkpointing: false  # CRITICAL for 1.5GB GPU
 
 # Training Configuration - Optimized for 1.5GB GPU with 300M Token Dataset
 training:
@@ -55,14 +55,20 @@ training:
   save_interval: 1000  # Save checkpoint every 1000 steps
   log_interval: 100    # Log every 100 steps
 
-# Data Configuration - Binary Dataset
+# Data Configuration - Binary Dataset with HuggingFace Auto-Download
 data:
   dataset_type: "binary"  # Use binary format for efficiency
   train_file: "data/balanced_300m/train.bin"
   val_file: "data/balanced_300m/val.bin"
-  max_length: 256      # Match context_length
-  num_workers: 0       # No multiprocessing (saves memory)
-  pin_memory: false    # Disabled to save memory
+  max_length: 512      # Match context_length
+  num_workers: 2       # No multiprocessing (saves memory)
+  pin_memory: true    # Disabled to save memory
+  
+  # HuggingFace Dataset Auto-Download Configuration
+  huggingface_dataset:
+    repo_id: "0x-genesys/mix_wiki_code_chat_data_300M_tokens"  # Your uploaded dataset
+    dataset_name: "balanced_300m"  # Local folder name in data/
+    auto_download: true  # Automatically download if files are missing
 
 # Tokenizer Configuration
 tokenizer:

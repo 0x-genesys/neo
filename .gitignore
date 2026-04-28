@@ -31,3 +31,4 @@ dmypy.json
 .idea/
 checkpoints/
 logs/
+data/
