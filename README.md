@@ -31,7 +31,13 @@ python train.py --config config/gpu_training_117m.yaml
   --model checkpoints/gpu_training/best_model.pt \
   --prompt "Your prompt here" \
   --max-tokens 100
+
+
+# multi gpu
+python train.py --config config/gpu_training_117m.yaml --multi-gpu
 ```
+
+
 
 ## Configuration Options
 

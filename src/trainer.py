@@ -217,10 +217,13 @@ class Trainer:
     
     def save_checkpoint(self, filename='checkpoint.pt', is_best=False):
         """Save training checkpoint."""
+        # Handle DataParallel wrapper
+        model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
+        
         checkpoint = {
             'epoch': self.epoch,
             'global_step': self.global_step,
-            'model_state_dict': self.model.state_dict(),
+            'model_state_dict': model_to_save.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'best_val_loss': self.best_val_loss,
             'config': self.config
@@ -245,7 +248,10 @@ class Trainer:
         """Load training checkpoint."""
         checkpoint = torch.load(filepath, map_location=self.device)
         
-        self.model.load_state_dict(checkpoint['model_state_dict'])
+        # Handle DataParallel wrapper
+        model_to_load = self.model.module if hasattr(self.model, 'module') else self.model
+        model_to_load.load_state_dict(checkpoint['model_state_dict'])
+        
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.epoch = checkpoint['epoch']
         self.global_step = checkpoint['global_step']
@@ -390,7 +396,10 @@ class Trainer:
         from .data import get_sample_prompts
         from .tokenizer_utils import encode_to_tensor, decode_from_tensor
         
-        self.model.eval()
+        # Get the actual model (unwrap DataParallel if needed)
+        model_for_generation = self.model.module if hasattr(self.model, 'module') else self.model
+        model_for_generation.eval()
+        
         prompts = get_sample_prompts()
         
         print("\n" + "="*80)
@@ -402,7 +411,7 @@ class Trainer:
             input_ids = encode_to_tensor(self.tokenizer, prompt, self.device)
             
             # Generate
-            output_ids = self.model.generate(
+            output_ids = model_for_generation.generate(
                 input_ids,
                 max_new_tokens=self.config['generation']['max_new_tokens'],
                 temperature=self.config['generation']['temperature'],
