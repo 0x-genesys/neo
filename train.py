@@ -89,7 +89,12 @@ def main():
     if args.resume:
         config['checkpoint']['resume_from'] = args.resume
     if args.dataset:
-        config['data']['dataset_name'] = args.dataset
+        # Support both dataset_name (HuggingFace) and train_file (binary)
+        if args.dataset.endswith('.bin'):
+            config['data']['dataset_type'] = 'binary'
+            config['data']['train_file'] = args.dataset
+        else:
+            config['data']['dataset_name'] = args.dataset
     if args.batch_size:
         config['training']['batch_size'] = args.batch_size
     if args.epochs:
@@ -130,7 +135,18 @@ def main():
     print("\n" + "="*80)
     print("Configuration:")
     print("="*80)
-    print(f"Dataset: {config['data']['dataset_name']}")
+    
+    # Handle both dataset types
+    dataset_type = config['data'].get('dataset_type', 'huggingface')
+    if dataset_type == 'binary':
+        train_file = config['data'].get('train_file', 'N/A')
+        print(f"Dataset: Binary format")
+        print(f"  Train file: {train_file}")
+        print(f"  Val file: {config['data'].get('val_file', 'N/A')}")
+    else:
+        dataset_name = config['data'].get('dataset_name', 'N/A')
+        print(f"Dataset: {dataset_name}")
+    
     print(f"Model: {config['model']['num_layers']} layers, {config['model']['d_model']} dim, {config['model']['num_heads']} heads")
     print(f"Context length: {config['model']['context_length']}")
     print(f"Batch size: {config['training']['batch_size']}")
