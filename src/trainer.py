@@ -222,7 +222,7 @@ class Trainer:
         return scheduler
     
     def save_checkpoint(self, filename='checkpoint.pt', is_best=False):
-        """Save training checkpoint."""
+        """Save training checkpoint and optionally upload to HuggingFace Hub."""
         # Handle DataParallel wrapper
         model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
         
@@ -245,10 +245,62 @@ class Trainer:
         torch.save(checkpoint, filepath)
         print(f"Checkpoint saved: {filepath}")
         
+        # Check if we should upload to HuggingFace Hub
+        hf_hub_config = self.config.get('huggingface_hub', {})
+        upload_best_only = hf_hub_config.get('upload_best_only', False)
+        
         if is_best:
             best_path = self.checkpoint_dir / 'best_model.pt'
             torch.save(checkpoint, best_path)
             print(f"Best model saved: {best_path}")
+            
+            # Always upload best model if HF Hub is enabled
+            self._upload_to_hub(best_path, is_best=True)
+        elif not upload_best_only:
+            # Upload regular checkpoint only if upload_best_only is False
+            self._upload_to_hub(filepath, is_best=False)
+    
+    def _upload_to_hub(self, filepath, is_best=False):
+        """Upload checkpoint to HuggingFace Hub bucket."""
+        # Check if HF Hub upload is enabled
+        hf_hub_config = self.config.get('huggingface_hub', {})
+        if not hf_hub_config.get('enabled', False):
+            return
+        
+        try:
+            from huggingface_hub import HfApi
+            
+            api = HfApi()
+            repo_id = hf_hub_config.get('repo_id')
+            
+            if not repo_id:
+                print("⚠️  HuggingFace Hub repo_id not configured, skipping upload")
+                return
+            
+            # Determine remote path
+            if is_best:
+                path_in_repo = f"best_model_step_{self.global_step}.pt"
+            else:
+                path_in_repo = filepath.name
+            
+            print(f"📤 Uploading to HuggingFace Hub: {repo_id}/{path_in_repo}")
+            
+            # Upload file
+            api.upload_file(
+                path_or_fileobj=str(filepath),
+                path_in_repo=path_in_repo,
+                repo_id=repo_id,
+                repo_type="model",
+                commit_message=f"Upload checkpoint at step {self.global_step} (epoch {self.epoch})"
+            )
+            
+            print(f"✅ Uploaded to HuggingFace Hub: https://huggingface.co/{repo_id}/tree/main")
+            
+        except ImportError:
+            print("⚠️  huggingface_hub not installed. Install with: pip install huggingface_hub")
+        except Exception as e:
+            print(f"⚠️  Failed to upload to HuggingFace Hub: {e}")
+            print(f"   Continuing training...")
     
     def load_checkpoint(self, filepath):
         """Load training checkpoint."""

@@ -99,6 +99,12 @@ logging:
   wandb_entity: null
   log_dir: "logs/gpu_training_117m_1.5gb_balanced"
 
+# HuggingFace Hub Integration
+huggingface_hub:
+  enabled: true  # Set to true to enable automatic uploads
+  repo_id: "0x-genesys/neo_weights_checkpoints"  # Your HF Hub repo
+  upload_best_only: false  # If true, only upload best models; if false, upload all checkpoints
+
 # Generation
 generation:
   max_new_tokens: 50   # Reduced from 100
