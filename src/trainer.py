@@ -3,7 +3,7 @@ Training infrastructure with checkpointing, logging, and validation.
 """
 import torch
 import torch.nn as nn
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 from torch.utils.tensorboard import SummaryWriter
 import os
 import time
@@ -34,7 +34,8 @@ class Trainer:
         
         # Mixed precision training
         self.use_amp = config['system']['mixed_precision']
-        self.scaler = GradScaler() if self.use_amp else None
+        device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.scaler = GradScaler(device_type) if self.use_amp else None
         
         # Tracking
         self.global_step = 0
@@ -288,8 +289,14 @@ class Trainer:
             targets = targets.to(self.device)
             
             # Forward pass with mixed precision
-            with autocast(enabled=self.use_amp):
+            device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+            with autocast(device_type=device_type, enabled=self.use_amp):
                 logits, loss = self.model(input_ids, targets)
+                
+                # Handle DataParallel: loss is a vector [num_gpus], need to reduce to scalar
+                if isinstance(loss, torch.Tensor) and loss.dim() > 0:
+                    loss = loss.mean()
+                
                 loss = loss / self.config['training']['gradient_accumulation_steps']
             
             # Backward pass
@@ -377,8 +384,13 @@ class Trainer:
             input_ids = input_ids.to(self.device)
             targets = targets.to(self.device)
             
-            with autocast(enabled=self.use_amp):
+            device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+            with autocast(device_type=device_type, enabled=self.use_amp):
                 logits, loss = self.model(input_ids, targets)
+            
+            # Handle DataParallel: loss is a vector [num_gpus], need to reduce to scalar
+            if isinstance(loss, torch.Tensor) and loss.dim() > 0:
+                loss = loss.mean()
             
             total_loss += loss.item()
             num_batches += 1
