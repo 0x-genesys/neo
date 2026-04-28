@@ -7,9 +7,14 @@ from torch.amp import autocast, GradScaler
 from torch.utils.tensorboard import SummaryWriter
 import os
 import time
+import warnings
 from tqdm import tqdm
 import numpy as np
 from pathlib import Path
+
+# Suppress harmless DataParallel warning (automatically handled by PyTorch)
+warnings.filterwarnings('ignore', message='Was asked to gather along dimension 0')
+
 
 
 class Trainer:
@@ -279,7 +284,7 @@ class Trainer:
         
         pbar = tqdm(
             self.train_loader, 
-            desc=f"Epoch {self.epoch} (Step {self.global_step}/{self.config['training']['max_steps']})",
+            desc=f"Epoch {self.epoch}",
             initial=start_batch,
             total=len(self.train_loader)
         )
@@ -330,6 +335,17 @@ class Trainer:
                 
                 self.global_step += 1
                 
+                # Calculate next milestones
+                next_log = ((self.global_step // self.config['training']['log_interval']) + 1) * self.config['training']['log_interval']
+                next_eval = ((self.global_step // self.config['training']['eval_interval']) + 1) * self.config['training']['eval_interval']
+                next_save = ((self.global_step // self.config['training']['save_interval']) + 1) * self.config['training']['save_interval']
+                
+                # Update progress bar with current step and next milestone
+                pbar.set_description(
+                    f"Epoch {self.epoch} | Step {self.global_step}/{self.config['training']['max_steps']} "
+                    f"(next eval: {next_eval})"
+                )
+                
                 # Logging
                 if self.global_step % self.config['training']['log_interval'] == 0:
                     lr = self.optimizer.param_groups[0]['lr']
@@ -338,22 +354,44 @@ class Trainer:
                         'train/lr': lr,
                         'train/step': self.global_step
                     })
+                    
+                    # Also print to console
+                    print(f"\n{'='*80}")
+                    print(f"Step {self.global_step}/{self.config['training']['max_steps']} | "
+                          f"Loss: {loss.item() * self.config['training']['gradient_accumulation_steps']:.4f} | "
+                          f"LR: {lr:.2e}")
+                    print(f"Next: Log@{next_log} | Eval@{next_eval} | Save@{next_save}")
+                    print(f"{'='*80}")
                 
                 # Validation
                 if self.global_step % self.config['training']['eval_interval'] == 0:
+                    print(f"\n{'='*80}")
+                    print(f"🔍 VALIDATION at step {self.global_step}")
+                    print(f"{'='*80}")
                     val_loss = self.validate()
                     self._log_metrics({'val/loss': val_loss})
+                    
+                    print(f"Validation loss: {val_loss:.4f}")
                     
                     # Save best model
                     if val_loss < self.best_val_loss:
                         self.best_val_loss = val_loss
+                        print(f"✅ New best validation loss! Saving best model...")
                         self.save_checkpoint(is_best=True)
+                    else:
+                        print(f"Current best: {self.best_val_loss:.4f}")
                     
                     self.model.train()
+                    print(f"{'='*80}\n")
                 
                 # Checkpointing
                 if self.global_step % self.config['training']['save_interval'] == 0:
+                    print(f"\n{'='*80}")
+                    print(f"💾 CHECKPOINT at step {self.global_step}")
+                    print(f"{'='*80}")
                     self.save_checkpoint(f'checkpoint_step_{self.global_step}.pt')
+                    print(f"✅ Checkpoint saved")
+                    print(f"{'='*80}\n")
                 
                 # Max steps check
                 if self.global_step >= self.config['training']['max_steps']:
