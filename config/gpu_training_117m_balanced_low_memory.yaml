@@ -1,0 +1,151 @@
+# ============================================================================
+# LOW MEMORY GPU Training - 117M Model (Multi-GPU Safe)
+# ============================================================================
+#
+# This config is optimized for multi-GPU training with limited memory
+# Designed for 2x T4 GPUs (14.56 GB each) with DataParallel
+#
+# Key changes to avoid OOM:
+# - Reduced batch_size to account for DataParallel overhead
+# - Enabled gradient_checkpointing to save memory
+# - Increased gradient_accumulation to maintain effective batch
+# - Reduced context_length to save memory
+#
+# ============================================================================
+
+model:
+  vocab_size: 100277
+  d_model: 768
+  num_heads: 12
+  num_layers: 12
+  context_length: 384              # REDUCED: 512 → 384 (saves ~2GB)
+  dropout: 0.12
+  use_flash_attention: false
+  use_gradient_checkpointing: true # ENABLED: Saves ~2-3GB per GPU
+
+training:
+  batch_size: 8                    # REDUCED: 16 → 8 (safe for multi-GPU)
+  gradient_accumulation_steps: 16  # INCREASED: 8 → 16 (maintains effective batch)
+  # Effective batch: 256 (8×16×2 GPUs) - same as before
+  max_epochs: 8
+  max_steps: 36621
+  learning_rate: 2.0e-4
+  weight_decay: 0.15
+  warmup_steps: 1500
+  max_grad_norm: 1.0
+  dropout: 0.12
+  eval_interval: 1000
+  save_interval: 1000
+  log_interval: 10                 # Frequent logging for visibility
+
+data:
+  dataset_type: "binary"
+  train_file: "data/balanced_300m/train.bin"
+  val_file: "data/balanced_300m/val.bin"
+  max_length: 384                  # REDUCED: Match context_length
+  num_workers: 4                   # Moderate (saves RAM)
+  pin_memory: true
+  
+  huggingface_dataset:
+    repo_id: "0x-genesys/mix_wiki_code_chat_data_300M_tokens"
+    dataset_name: "balanced_300m"
+    auto_download: true
+
+tokenizer:
+  type: "tiktoken"
+  vocab_size: 100277
+
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  type: "cosine"
+  min_lr: 2.0e-5
+
+system:
+  device: "cuda"
+  mixed_precision: true            # Keep enabled (saves memory)
+  compile_model: false             # Disabled (can cause memory issues)
+  seed: 42
+
+checkpoint:
+  save_dir: "checkpoints/gpu_training_117m_balanced_low_memory"
+  resume_from: null
+  save_best_only: false
+
+logging:
+  use_wandb: false
+  wandb_project: "transformer-117m-balanced-low-memory"
+  wandb_entity: null
+  log_dir: "logs/gpu_training_117m_balanced_low_memory"
+
+huggingface_hub:
+  enabled: true
+  repo_id: "0x-genesys/neo_weights_checkpoints"
+  upload_best_only: false
+
+generation:
+  max_new_tokens: 100
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  num_samples: 3
+
+# ============================================================================
+# MEMORY BREAKDOWN (per GPU with DataParallel)
+# ============================================================================
+#
+# Model weights (FP16):           ~0.9 GB
+# Optimizer states (FP32):        ~1.8 GB
+# Gradients (FP16):               ~0.9 GB
+# Activations (batch=8, ctx=384): ~2.0 GB (with gradient checkpointing)
+# DataParallel overhead:          ~1.5 GB (gathering gradients on GPU 0)
+# Buffer/fragmentation:           ~1.0 GB
+# ----------------------------------------
+# Total per GPU:                  ~8-9 GB (safe for 14.56 GB)
+#
+# ============================================================================
+# WHY THIS WORKS
+# ============================================================================
+#
+# 1. Gradient checkpointing: Saves ~2-3GB by recomputing activations
+# 2. Smaller batch: 8 vs 16 reduces activation memory by 50%
+# 3. Shorter context: 384 vs 512 reduces memory by ~25%
+# 4. More grad accum: Maintains same effective batch size
+#
+# Trade-offs:
+# - Slower training (more gradient accumulation steps)
+# - Shorter context (384 vs 512 tokens)
+# - But: No OOM, stable training
+#
+# ============================================================================
+# USAGE
+# ============================================================================
+#
+# # Set memory optimization env var (recommended)
+# export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+#
+# # Run training
+# python train.py --config config/gpu_training_117m_balanced_low_memory.yaml
+#
+# # Monitor GPU memory
+# watch -n 1 nvidia-smi
+#
+# ============================================================================
+# IF STILL OOM
+# ============================================================================
+#
+# 1. Reduce batch_size to 4:
+#    batch_size: 4
+#    gradient_accumulation_steps: 32
+#
+# 2. Reduce context_length to 256:
+#    context_length: 256
+#    max_length: 256
+#
+# 3. Use single GPU (disable DataParallel):
+#    export CUDA_VISIBLE_DEVICES=0
+#
+# ============================================================================

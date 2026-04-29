@@ -33,7 +33,7 @@ model:
 # Training Configuration - Optimized for 300M Token Dataset
 training:
   batch_size: 8       # Batch size per GPU
-  gradient_accumulation_steps: 4  # Effective batch = 128 (16 × 8)
+  gradient_accumulation_steps: 16  # Effective batch = 128 (16 × 8)
   max_epochs: 8        # 8 epochs × 300M tokens = 2.4B total tokens
   max_steps: 36621     # Total tokens (2.4B) / tokens-per-step (65,536)
   learning_rate: 2.0e-4  # Optimized for 117M model with diverse data
