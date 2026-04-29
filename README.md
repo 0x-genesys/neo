@@ -161,17 +161,32 @@ python src/inference.py \
 
 ### Remote Model (HuggingFace Hub)
 ```bash
-# Load model from HuggingFace Hub
+# Load model from HuggingFace Hub (config auto-loaded from checkpoint)
 python src/inference.py \
     --model-remote best_model.pt \
     --prompt "Once upon a time"
+
+# Interactive mode
+python src/inference.py \
+    --model-remote best_model.pt \
+    --interactive
 
 # From specific repository
 python src/inference.py \
     --model-remote checkpoint_step_4000.pt \
     --model-repo your-username/your-model-repo \
     --prompt "The future of AI"
+
+# Override generation parameters
+python src/inference.py \
+    --model-remote best_model.pt \
+    --temperature 1.0 \
+    --top-k 100 \
+    --max-tokens 200 \
+    --interactive
 ```
+
+**Note**: Config is automatically loaded from the checkpoint. You don't need to provide `--config` unless you want to override settings.
 
 ### Batch Inference
 ```bash
@@ -189,6 +204,12 @@ python src/inference.py \
     --model-remote checkpoint_step_4000.pt \
     --model-repo your-username/your-model-repo \
     --interactive
+```
+
+### Interactive inference with config
+
+```bash
+venv/bin/python3 src/inference.py --model-remote best_model_step_2500.pt --interactive --config config/inference.yaml
 ```
 
 ## 📊 Monitoring
@@ -340,6 +361,7 @@ bash scripts/upgrade_pytorch.sh
 
 - **[START_HERE.md](docs/START_HERE.md)** - Complete setup guide
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture
+- **[INFERENCE_GUIDE.md](docs/INFERENCE_GUIDE.md)** - Complete inference guide
 - **[REMOTE_MODEL_LOADING.md](docs/REMOTE_MODEL_LOADING.md)** - Load models from HuggingFace Hub
 - **[DATASET_DOWNLOAD_GUIDE.md](docs/DATASET_DOWNLOAD_GUIDE.md)** - Dataset management
 - **[CHECKPOINT_UPLOAD_GUIDE.md](docs/CHECKPOINT_UPLOAD_GUIDE.md)** - Model sharing

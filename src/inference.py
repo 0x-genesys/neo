@@ -11,6 +11,30 @@ import yaml
 class TextGenerator:
     """Production-ready text generator."""
     
+    def _deep_merge_configs(self, base_config, override_config):
+        """
+        Deep merge two configs. Override config takes precedence.
+        
+        Args:
+            base_config: Base configuration (from checkpoint)
+            override_config: Override configuration (from user file)
+            
+        Returns:
+            Merged configuration
+        """
+        import copy
+        merged = copy.deepcopy(base_config)
+        
+        for key, value in override_config.items():
+            if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+                # Recursively merge nested dicts
+                merged[key] = self._deep_merge_configs(merged[key], value)
+            else:
+                # Override value
+                merged[key] = value
+        
+        return merged
+    
     def __init__(self, model_path, config_path=None, device=None, model_repo=None):
         """
         Initialize the text generator.
@@ -42,14 +66,21 @@ class TextGenerator:
         print(f"Loading model from {model_path}...")
         checkpoint = torch.load(model_path, map_location='cpu')
         
-        # Get config
+        # Get config - always start with checkpoint config
+        checkpoint_config = checkpoint.get('config', None)
+        if checkpoint_config is None:
+            raise ValueError("Config not found in checkpoint. This checkpoint may be corrupted or from an old version.")
+        
+        # If user provides a config file, merge it (user config overrides only specified fields)
         if config_path:
             with open(config_path, 'r') as f:
-                self.config = yaml.safe_load(f)
+                user_config = yaml.safe_load(f)
+            
+            # Deep merge: checkpoint config as base, user config overrides
+            self.config = self._deep_merge_configs(checkpoint_config, user_config)
+            print(f"✅ Merged config from {config_path} with checkpoint config")
         else:
-            self.config = checkpoint.get('config', None)
-            if self.config is None:
-                raise ValueError("Config not found in checkpoint and no config_path provided")
+            self.config = checkpoint_config
         
         # Setup device
         if device is None:
@@ -65,11 +96,46 @@ class TextGenerator:
             self.device = torch.device(device)
         
         # Load tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.config['tokenizer']['type']
-        )
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+        tokenizer_type = self.config['tokenizer']['type']
+        print(f"Loading tokenizer: {tokenizer_type}")
+        
+        # Check if using tiktoken
+        if tokenizer_type == 'tiktoken' or 'cl100k' in tokenizer_type.lower():
+            try:
+                import tiktoken
+            except ImportError:
+                raise ImportError("tiktoken is required for this model. Install with: pip install tiktoken")
+            
+            print("Using tiktoken cl100k_base (GPT-4) tokenizer")
+            encoding = tiktoken.get_encoding("cl100k_base")
+            
+            # Create a wrapper to match HuggingFace interface (same as training code)
+            class TiktokenWrapper:
+                def __init__(self, encoding):
+                    self.encoding = encoding
+                    self.vocab_size = encoding.n_vocab
+                    self.eos_token = "<|endoftext|>"
+                    self.pad_token = "<|endoftext|>"
+                    # Get special token IDs properly
+                    self.eos_token_id = encoding.encode_single_token(self.eos_token)
+                    self.pad_token_id = self.eos_token_id
+                
+                def encode(self, text, **kwargs):
+                    return self.encoding.encode(text, allowed_special='all')
+                
+                def decode(self, tokens, **kwargs):
+                    return self.encoding.decode(tokens)
+                
+                def __len__(self):
+                    return self.vocab_size
+            
+            self.tokenizer = TiktokenWrapper(encoding)
+            print(f"✅ Tiktoken loaded: vocab_size={self.tokenizer.vocab_size:,}")
+        else:
+            # Use HuggingFace tokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_type)
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
         
         # Create and load model
         try:
