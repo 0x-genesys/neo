@@ -11,15 +11,31 @@ import yaml
 class TextGenerator:
     """Production-ready text generator."""
     
-    def __init__(self, model_path, config_path=None, device=None):
+    def __init__(self, model_path, config_path=None, device=None, model_repo=None):
         """
         Initialize the text generator.
         
         Args:
-            model_path: Path to saved model checkpoint
+            model_path: Path to saved model checkpoint (local or remote filename)
             config_path: Path to config file (optional)
             device: Device to run on (cuda/cpu/mps)
+            model_repo: HuggingFace repository ID for remote loading (optional)
         """
+        # Handle remote model loading
+        if model_repo:
+            print(f"📥 Loading model from HuggingFace Hub...")
+            print(f"   Repository: {model_repo}")
+            print(f"   File: {model_path}")
+            try:
+                from .remote_model_loader import get_remote_checkpoint_path
+            except ImportError:
+                import sys
+                sys.path.insert(0, str(Path(__file__).parent.parent))
+                from src.remote_model_loader import get_remote_checkpoint_path
+            
+            # Download checkpoint from HuggingFace Hub
+            model_path = get_remote_checkpoint_path(model_path, model_repo)
+        
         self.model_path = Path(model_path)
         
         # Load checkpoint
@@ -249,7 +265,10 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='Text generation with trained transformer')
-    parser.add_argument('--model', type=str, required=True, help='Path to model checkpoint')
+    parser.add_argument('--model', type=str, help='Path to local model checkpoint')
+    parser.add_argument('--model-remote', type=str, help='Remote model filename from HuggingFace Hub (e.g., "best_model.pt")')
+    parser.add_argument('--model-repo', type=str, default='0x-genesys/neo_weights_checkpoints', 
+                        help='HuggingFace model repository ID')
     parser.add_argument('--config', type=str, help='Path to config file')
     parser.add_argument('--prompt', type=str, help='Text prompt for generation')
     parser.add_argument('--interactive', action='store_true', help='Run in interactive mode')
@@ -261,8 +280,18 @@ def main():
     
     args = parser.parse_args()
     
+    # Validate model arguments
+    if not args.model and not args.model_remote:
+        parser.error("Either --model or --model-remote must be provided")
+    if args.model and args.model_remote:
+        parser.error("Cannot specify both --model and --model-remote")
+    
+    # Determine model path and repo
+    model_path = args.model_remote if args.model_remote else args.model
+    model_repo = args.model_repo if args.model_remote else None
+    
     # Initialize generator
-    generator = TextGenerator(args.model, args.config)
+    generator = TextGenerator(model_path, args.config, model_repo=model_repo)
     
     if args.interactive:
         generator.interactive_mode()

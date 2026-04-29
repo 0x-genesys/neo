@@ -132,6 +132,16 @@ def collate_fn(batch, max_length):
     return input_ids, targets
 
 
+class CollateFnWrapper:
+    """Wrapper for collate_fn that can be pickled for multiprocessing."""
+    
+    def __init__(self, max_length):
+        self.max_length = max_length
+    
+    def __call__(self, batch):
+        return collate_fn(batch, self.max_length)
+
+
 def load_data(config):
     """
     Load and prepare datasets with support for both HuggingFace and binary formats.
@@ -479,12 +489,16 @@ def load_huggingface_data(config, tokenizer):
     # Get data loading parameters
     num_workers = config['data'].get('num_workers', 0)
     pin_memory = config['data'].get('pin_memory', False)
+    max_length = config['data']['max_length']
     
     print(f"\nDataLoader settings:")
     print(f"  Batch size: {config['training']['batch_size']}")
     print(f"  Num workers: {num_workers}")
     print(f"  Pin memory: {pin_memory}")
-    print(f"  Max length: {config['data']['max_length']}")
+    print(f"  Max length: {max_length}")
+    
+    # Create collate function wrapper (can be pickled for multiprocessing)
+    collate_wrapper = CollateFnWrapper(max_length)
     
     # Create dataloaders
     train_loader = DataLoader(
@@ -492,7 +506,7 @@ def load_huggingface_data(config, tokenizer):
         batch_size=config['training']['batch_size'],
         shuffle=True,
         num_workers=num_workers,
-        collate_fn=lambda x: collate_fn(x, config['data']['max_length']),
+        collate_fn=collate_wrapper,
         pin_memory=pin_memory
     )
     
@@ -503,7 +517,7 @@ def load_huggingface_data(config, tokenizer):
             batch_size=config['training']['batch_size'],
             shuffle=False,
             num_workers=num_workers,
-            collate_fn=lambda x: collate_fn(x, config['data']['max_length']),
+            collate_fn=collate_wrapper,
             pin_memory=pin_memory
         )
     
@@ -514,7 +528,7 @@ def load_huggingface_data(config, tokenizer):
             batch_size=config['training']['batch_size'],
             shuffle=False,
             num_workers=num_workers,
-            collate_fn=lambda x: collate_fn(x, config['data']['max_length']),
+            collate_fn=collate_wrapper,
             pin_memory=pin_memory
         )
     

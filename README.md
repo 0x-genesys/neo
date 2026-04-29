@@ -1,218 +1,390 @@
-# Transformer Training System
+# Neo - Production-Ready Transformer Language Model
 
-Production-ready transformer training system with comprehensive documentation and scaling support.
+A robust, production-ready transformer language model implementation with comprehensive training, inference, and deployment capabilities.
 
-## Quick Start
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![PyTorch 2.0+](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+## 🚀 Quick Start
 
 ```bash
-# Setup
-./setup.sh
+# Install dependencies
+pip install -r requirements.txt
 
-# Validate all configs and code (RECOMMENDED FIRST STEP)
-python validate_configs.py
+# Train with pre-processed dataset (auto-downloads)
+python train.py --config config/quick_start.yaml
 
-# Test new features (warmup, gradient checkpointing)
-python test_shakespeare.py
+# Resume from HuggingFace Hub
+python train.py --config config/production_training.yaml --resume-remote checkpoint.pt
 
-# Train small model (testing - 1 hour)
-./venv/bin/python train.py --config config/quick_start.yaml
+# Run inference
+python src/inference.py --model checkpoints/production/best_model.pt --prompt "Once upon a time"
 
-# Train on CPU (10 hours)
-./venv/bin/python train.py --config config/production_training.yaml
-
-# Train on GPU - RECOMMENDED (3 hours, high quality)
-python train.py --config config/gpu_training.yaml
-
-# Train large model on GPU - PRODUCTION (2-3 days, excellent quality)
-python train.py --config config/gpu_training_117m.yaml
-
-# Generate text
-./venv/bin/python src/inference.py \
-  --model checkpoints/gpu_training/best_model.pt \
-  --prompt "Your prompt here" \
-  --max-tokens 100
-
-
-# multi gpu
-python train.py --config config/gpu_training_117m.yaml --multi-gpu
-```
-
-
-
-## Configuration Options
-
-| Config | Params | Hardware | Time | Quality | Use Case |
-|--------|--------|----------|------|---------|----------|
-| `quick_start.yaml` | 8M | CPU | 1h | Basic | Testing |
-| `production_training.yaml` | 16M | CPU | 10h | Good | No GPU |
-| **`gpu_training.yaml`** | **16M** | **T4 GPU** | **3h** | **Very Good** | **Recommended** ✅ |
-| **`gpu_training_117m.yaml`** | **124M** | **T4 GPU** | **55h** | **Excellent** | **Production** 🚀 |
-| `gpu_training_345m.yaml` | 345M | A100 | 3-5d | Very Good | GPT-2 Medium |
-| `gpu_training_774m.yaml` | 774M | A100 | 1-2w | Excellent | GPT-2 Large |
-| `gpu_training_1.5b.yaml` | 1.5B | A100 | 2-4w | Excellent | GPT-2 XL |
-| `gpu_training_2.7b.yaml` | 2.7B | 4-8×A100 | 1-2m | GPT-3 | GPT-3 Small* |
-| `gpu_training_6.7b.yaml` | 6.7B | 8-16×A100 | 2-3m | GPT-3 | GPT-3 Medium* |
-| `gpu_training_13b.yaml` | 13B | 16-32×A100 | 3-6m | GPT-3 | GPT-3 Large* |
-
-*Requires distributed training implementation (DDP/FSDP)
-
-See [docs/CONFIG_INDEX.md](docs/CONFIG_INDEX.md) for complete details.
-
-## Current Status
-
-### Training Progress
-- **Model**: 16M parameters (4 layers, 256 dim, 8 heads)
-- **Steps**: 1484/5000 (30% complete)
-- **Loss**: 0.7052 (good progress from ~10.0)
-- **Quality**: Generating diverse tokens, improving
-
-### Generation Example
-```
-Prompt: "Once upon a time"
-Output: "Once upon a time of the new new company to be described by 
-the English and the United States, but the first time of the second 
-season..."
-```
-
-**Status**: ✅ Learning language patterns, needs more training
-
-## Documentation
-
-### Getting Started
-- **[docs/START_HERE.md](docs/START_HERE.md)** - Begin here
-- **[docs/NEW_FEATURES.md](docs/NEW_FEATURES.md)** - New features (warmup, checkpointing, GPT-4 tokenizer)
-- **[docs/INSTALLATION.md](docs/INSTALLATION.md)** - Setup guide
-- **[docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md)** - Command cheatsheet
-
-### Training
-- **[docs/TRAINING_SUCCESS.md](docs/TRAINING_SUCCESS.md)** - Training status
-- **[docs/GPU_TRAINING_GUIDE.md](docs/GPU_TRAINING_GUIDE.md)** - GPU training guide
-- **[docs/SCALING_TO_124M.md](docs/SCALING_TO_124M.md)** - Scaling to 124M parameters
-- **[docs/MODEL_COMPARISON.md](docs/MODEL_COMPARISON.md)** - Model comparison
-- **[docs/DATASETS.md](docs/DATASETS.md)** - Dataset options
-- **[docs/HUGGINGFACE_SETUP.md](docs/HUGGINGFACE_SETUP.md)** - HF token setup
-
-### Scaling to Billion-Parameter Models
-- **[docs/next_steps/SCALING_CHECKLIST.md](docs/next_steps/SCALING_CHECKLIST.md)** - Critical review before scaling
-- **[docs/next_steps/PROPOSED_ARCHITECTURES.md](docs/next_steps/PROPOSED_ARCHITECTURES.md)** - Architecture configurations
-
-### Bug Fixes & Explanations
-- **[docs/CRITICAL_BUG_FOUND.md](docs/CRITICAL_BUG_FOUND.md)** - Input-target shifting bug
-- **[docs/ALL_BUGS_FIXED_UPDATED.md](docs/ALL_BUGS_FIXED_UPDATED.md)** - Complete bug list
-- **[docs/PYTORCH_VERSION_EXPLANATION.md](docs/PYTORCH_VERSION_EXPLANATION.md)** - PyTorch version details
-
-### Architecture
-- **[ARCHITECTURE_COMPARISON.md](ARCHITECTURE_COMPARISON.md)** - Architecture details
-
-## Project Structure
+# Run inference in interactive mode with remote model
 
 ```
-transformer_2026/
-├── src/                      # Core implementation
-│   ├── model.py             # Transformer architecture
-│   ├── trainer.py           # Training pipeline
-│   ├── data.py              # Data loading
-│   ├── inference.py         # Text generation
-│   ├── device_utils.py      # Device detection
-│   └── tokenizer_utils.py   # Tokenizer helpers
-├── config/                   # Configuration files
-│   ├── quick_start.yaml     # Small model (8M params, 500 steps)
-│   ├── production_training.yaml  # Medium model (16M params, 10K steps)
-│   ├── gpu_training.yaml    # GPU optimized (16M params, 50K steps)
-│   ├── gpu_training_117m.yaml    # Large model (124M params, 100K steps)
-│   └── model_config.yaml    # Large model config (40M params)
+
+## 📦 Pre-trained Models & Datasets
+
+### Models
+- **Repository**: [0x-genesys/neo_weights_checkpoints](https://huggingface.co/0x-genesys/neo_weights_checkpoints)
+- **Available checkpoints**: `checkpoint.pt`, `best_model.pt`, `checkpoint_step_*.pt`
+- **Model sizes**: 117M parameters (GPT-2 Small architecture)
+
+### Datasets
+- **Repository**: [0x-genesys/mix_wiki_code_chat_data_300M_tokens](https://huggingface.co/datasets/0x-genesys/mix_wiki_code_chat_data_300M_tokens)
+- **Size**: 300M tokens
+- **Composition**:
+  - WikiText-103: 102M tokens (34%) - Encyclopedic knowledge
+  - UltraChat: 198M tokens (66%) - Conversational AI
+  - The Stack: 48M tokens (16%) - Code reasoning
+
+## ✨ Key Features
+
+### 🎯 Training
+- **Multi-GPU support** with DataParallel
+- **Mixed precision (FP16)** training
+- **Gradient checkpointing** for memory efficiency
+- **Automatic dataset download** from HuggingFace Hub
+- **Resume from remote checkpoints** on HuggingFace Hub
+- **TensorBoard logging** and Weights & Biases integration
+- **Automatic checkpoint upload** to HuggingFace Hub
+
+### 🔧 Robustness
+- **Multi-environment support**: CUDA, MPS (Apple Silicon), CPU
+- **PyTorch version compatibility**: 2.0, 2.1, 2.2, 2.3, 2.4+
+- **Automatic memory optimization** for different GPU sizes
+- **Graceful error handling** and recovery
+- **Comprehensive test suite**
+
+### 📊 Inference
+- **Local model loading**
+- **Remote model loading** from HuggingFace Hub
+- **Batch inference** support
+- **Multiple sampling strategies** (temperature, top-k, top-p)
+
+## 🛠️ Installation
+
+```bash
+# Clone repository
+git clone https://github.com/yourusername/neo.git
+cd neo
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Verify installation
+python scripts/fix_environment.py
+```
+
+## 📚 Training
+
+### Quick Start Training
+```bash
+# Small model, fast training (5 minutes)
+python train.py --config config/quick_start.yaml
+```
+
+### Production Training
+```bash
+# Full training with balanced dataset
+python train.py --config config/production_training.yaml
+```
+
+### GPU Training (Multi-GPU)
+```bash
+# Optimized for 2x T4 GPUs
+python train.py --config config/gpu_training_117m_balanced.yaml --multi-gpu
+
+# Low memory config (if OOM)
+python train.py --config config/gpu_training_117m_balanced_low_memory.yaml --multi-gpu
+```
+
+### Resume Training
+
+**From local checkpoint:**
+```bash
+python train.py --config config/production_training.yaml --resume checkpoints/production/checkpoint.pt
+```
+
+**From HuggingFace Hub:**
+```bash
+python train.py --config config/production_training.yaml --resume-remote checkpoint.pt
+```
+
+**From specific repository:**
+```bash
+python train.py --config config/production_training.yaml \
+    --resume-remote checkpoint_step_4000.pt \
+    --model-repo your-username/your-model-repo
+```
+
+### Command Line Options
+
+```bash
+python train.py \
+    --config config/production_training.yaml \  # Config file
+    --resume checkpoints/model.pt \             # Resume from local checkpoint
+    --resume-remote checkpoint.pt \             # Resume from HuggingFace Hub
+    --model-repo 0x-genesys/neo_weights \       # HuggingFace model repo
+    --dataset data/custom/train.bin \           # Override dataset
+    --batch-size 32 \                           # Override batch size
+    --epochs 10 \                               # Override epochs
+    --lr 3e-4 \                                 # Override learning rate
+    --multi-gpu \                               # Use all GPUs
+    --gpu-ids 0,1                               # Use specific GPUs
+```
+
+## 🔮 Inference
+
+### Local Model
+```bash
+# Basic inference
+python src/inference.py \
+    --model checkpoints/production/best_model.pt \
+    --prompt "Once upon a time"
+
+# With custom parameters
+python src/inference.py \
+    --model checkpoints/production/best_model.pt \
+    --prompt "The future of AI" \
+    --max-length 200 \
+    --temperature 0.8 \
+    --top-k 50 \
+    --top-p 0.95
+```
+
+### Remote Model (HuggingFace Hub)
+```bash
+# Load model from HuggingFace Hub
+python src/inference.py \
+    --model-remote best_model.pt \
+    --prompt "Once upon a time"
+
+# From specific repository
+python src/inference.py \
+    --model-remote checkpoint_step_4000.pt \
+    --model-repo your-username/your-model-repo \
+    --prompt "The future of AI"
+```
+
+### Batch Inference
+```bash
+# Process multiple prompts
+python src/inference.py \
+    --model checkpoints/production/best_model.pt \
+    --prompts prompts.txt \
+    --output results.txt
+```
+
+### Interactive Inference
+```bash
+# From specific repository
+python src/inference.py \
+    --model-remote checkpoint_step_4000.pt \
+    --model-repo your-username/your-model-repo \
+    --interactive
+```
+
+## 📊 Monitoring
+
+### TensorBoard
+```bash
+tensorboard --logdir logs/
+```
+
+### Weights & Biases
+```yaml
+# In config file
+logging:
+  use_wandb: true
+  wandb_project: "your-project"
+  wandb_entity: "your-username"
+```
+
+### GPU Monitoring
+```bash
+# Real-time GPU monitoring
+watch -n 1 nvidia-smi
+
+# Memory usage
+nvidia-smi --query-gpu=memory.used,memory.total --format=csv
+```
+
+## 🗂️ Project Structure
+
+```
+neo/
+├── README.md                 # This file
+├── ARCHITECTURE.md           # System architecture documentation
+├── requirements.txt          # Python dependencies
+│
+├── config/                   # Training configurations
+│   ├── quick_start.yaml      # Fast testing config
+│   ├── production_training.yaml
+│   ├── gpu_training_117m_balanced.yaml
+│   └── gpu_training_117m_balanced_low_memory.yaml
+│
+├── src/                      # Source code
+│   ├── model.py              # Model architecture
+│   ├── trainer.py            # Training loop
+│   ├── data.py               # Data loading
+│   ├── inference.py          # Inference script
+│   ├── dataset_downloader.py # Auto-download datasets
+│   └── remote_model_loader.py # Load models from HF Hub
+│
+├── scripts/                  # Utility scripts
+│   ├── prepare_balanced_dataset.py
+│   ├── test_checkpoint_upload.py
+│   ├── setup_dataset_repo.py
+│   └── fix_environment.py
+│
+├── test/                     # Test suite
+│   ├── test_setup.py
+│   ├── test_installation.py
+│   └── test_training.py
+│
 ├── docs/                     # Documentation
-│   ├── next_steps/          # Scaling guides
-│   │   ├── SCALING_CHECKLIST.md
-│   │   └── PROPOSED_ARCHITECTURES.md
-│   └── *.md                 # All other docs
-├── checkpoints/             # Saved models
-├── logs/                    # Training logs
-├── train.py                 # Main training script
-└── evaluate.py              # Evaluation script
+│   ├── START_HERE.md         # Getting started guide
+│   ├── DATASET_DOWNLOAD_GUIDE.md
+│   ├── CHECKPOINT_UPLOAD_GUIDE.md
+│   ├── GPU_TRAINING_OPTIMIZATION_GUIDE.md
+│   └── MULTI_GPU_MEMORY_FIX.md
+│
+├── checkpoints/              # Saved model checkpoints
+├── logs/                     # Training logs
+└── data/                     # Dataset storage
 ```
 
-## Features
+## 🎓 Configuration Files
 
-### ✅ Complete Training System
-- GPT-style decoder-only transformer
-- **Learning rate warmup scheduler** (NEW!)
-- **Gradient checkpointing** (NEW!)
-- Gradient accumulation
-- Learning rate scheduling
-- Checkpointing & resume
-- Validation & sample generation
-- TensorBoard logging
+| Config | Model Size | Dataset | GPU Memory | Use Case |
+|--------|------------|---------|------------|----------|
+| `quick_start.yaml` | 2.36M | WikiText-2 | 2GB | Testing |
+| `production_training.yaml` | 16M | WikiText-2 | 4GB | CPU training |
+| `gpu_training_117m_balanced.yaml` | 117M | 300M tokens | 14GB | Production |
+| `gpu_training_117m_balanced_low_memory.yaml` | 117M | 300M tokens | 8GB | Multi-GPU safe |
 
-### ✅ Production Ready
-- Cross-platform (CPU/CUDA/MPS)
-- **GPT-4 tokenizer support** (NEW!)
-- Error handling & recovery
-- Comprehensive documentation
-- 11 bugs fixed through testing
-- **Scalable to billion-parameter models** (NEW!)
+## 🔧 Advanced Features
 
-### ✅ New Features (Just Implemented)
-- ✅ **Warmup scheduler**: Linear warmup + cosine decay (critical for large models)
-- ✅ **Gradient checkpointing**: 2-3x memory savings (train larger models)
-- ✅ **GPT-4 tokenizer**: 100k vocab support via tiktoken
-- ✅ **Test script**: Validates all features on CPU (`test_shakespeare.py`)
+### Automatic Dataset Download
 
-See [docs/NEW_FEATURES.md](docs/NEW_FEATURES.md) for details.
+Datasets are automatically downloaded from HuggingFace Hub when missing:
 
-## System Requirements
+```yaml
+# In config file
+data:
+  dataset_type: "binary"
+  train_file: "data/balanced_300m/train.bin"
+  
+  huggingface_dataset:
+    repo_id: "0x-genesys/mix_wiki_code_chat_data_300M_tokens"
+    dataset_name: "balanced_300m"
+    auto_download: true
+```
 
-### Current Setup (CPU)
-- Python 3.12+
-- PyTorch 2.2.2
-- 8GB RAM
-- ~500MB disk space
+### Automatic Checkpoint Upload
 
-### For GPU Training
-- CUDA-capable GPU (8GB+ VRAM)
-- PyTorch with CUDA support
-- See [docs/WHY_NO_CUDA.md](docs/WHY_NO_CUDA.md) for setup
+Upload checkpoints to HuggingFace Hub during training:
 
-## Next Steps
+```yaml
+# In config file
+huggingface_hub:
+  enabled: true
+  repo_id: "0x-genesys/neo_weights_checkpoints"
+  upload_best_only: false
+```
 
-### Immediate (Complete Current Training)
-1. Let current model finish (3500 more steps)
-2. Validate generation quality
-3. Establish baseline performance
+### Memory Optimization
 
-### Before Scaling to Larger Models
-1. **Implement warmup scheduler** (CRITICAL)
-2. **Implement gradient checkpointing** (CRITICAL)
-3. **Test on GPU** with 100M-300M model
-4. See [docs/next_steps/SCALING_CHECKLIST.md](docs/next_steps/SCALING_CHECKLIST.md)
+For multi-GPU training with limited memory:
 
-### Scaling Progression
-1. Current: 16M params (CPU/GPU) ✅
-2. **Production: 124M params (GPU)** 🚀
-3. Medium: 345M-774M params (GPT-2 Medium/Large)
-4. Large: 1.5B-2.7B params (GPT-2 XL / GPT-3 Small)
-5. XL: 6.7B-13B params (GPT-3 Medium/Large)
+```bash
+# Set memory optimization
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-**All configs available!** See [docs/CONFIG_INDEX.md](docs/CONFIG_INDEX.md) for complete guide.
+# Use low memory config
+python train.py --config config/gpu_training_117m_balanced_low_memory.yaml
+```
 
-Configs for 2.7B+ require distributed training implementation (DDP/FSDP).
+## 🐛 Troubleshooting
 
-## Key Achievements
+### Out of Memory (OOM)
+```bash
+# Use low memory config
+python train.py --config config/gpu_training_117m_balanced_low_memory.yaml
 
-- ✅ Built complete transformer from scratch
-- ✅ Fixed 11 bugs through iterative testing
-- ✅ Trained working language model
-- ✅ Created 25+ documentation files
-- ✅ Production-ready codebase
+# Or use single GPU
+export CUDA_VISIBLE_DEVICES=0
+python train.py --config config/gpu_training_117m_balanced.yaml
+```
 
-## License
+### Slow Training
+See [GPU_TRAINING_OPTIMIZATION_GUIDE.md](docs/GPU_TRAINING_OPTIMIZATION_GUIDE.md) for optimization strategies.
 
-MIT License - See LICENSE file for details
+### Environment Issues
+```bash
+# Run diagnostics
+python scripts/fix_environment.py
 
-## Acknowledgments
+# Upgrade PyTorch
+bash scripts/upgrade_pytorch.sh
+```
 
-Built with PyTorch, Transformers, and HuggingFace Datasets.
+## 📖 Documentation
+
+- **[START_HERE.md](docs/START_HERE.md)** - Complete setup guide
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture
+- **[REMOTE_MODEL_LOADING.md](docs/REMOTE_MODEL_LOADING.md)** - Load models from HuggingFace Hub
+- **[DATASET_DOWNLOAD_GUIDE.md](docs/DATASET_DOWNLOAD_GUIDE.md)** - Dataset management
+- **[CHECKPOINT_UPLOAD_GUIDE.md](docs/CHECKPOINT_UPLOAD_GUIDE.md)** - Model sharing
+- **[GPU_TRAINING_OPTIMIZATION_GUIDE.md](docs/GPU_TRAINING_OPTIMIZATION_GUIDE.md)** - Performance tuning
+- **[MULTI_GPU_MEMORY_FIX.md](docs/MULTI_GPU_MEMORY_FIX.md)** - Memory optimization
+
+## 🧪 Testing
+
+```bash
+# Run all tests
+python -m pytest test/
+
+# Run specific test
+python test/test_setup.py
+
+# Check environment
+python scripts/fix_environment.py
+```
+
+## 🤝 Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- Built with [PyTorch](https://pytorch.org/)
+- Tokenization with [tiktoken](https://github.com/openai/tiktoken)
+- Model hosting on [HuggingFace Hub](https://huggingface.co/)
+
+## 📞 Support
+
+- **Issues**: [GitHub Issues](https://github.com/yourusername/neo/issues)
+- **Documentation**: [docs/](docs/)
+- **Discussions**: [GitHub Discussions](https://github.com/yourusername/neo/discussions)
+
+## 🔗 Links
+
+- **Models**: [0x-genesys/neo_weights_checkpoints](https://huggingface.co/0x-genesys/neo_weights_checkpoints)
+- **Datasets**: [0x-genesys/mix_wiki_code_chat_data_300M_tokens](https://huggingface.co/datasets/0x-genesys/mix_wiki_code_chat_data_300M_tokens)
+- **Documentation**: [docs/](docs/)
 
 ---
 
-**Status**: Training in progress. Model learning language patterns. See docs/ for complete information.
+**Made with ❤️ by the Neo team**

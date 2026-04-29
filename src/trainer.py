@@ -3,7 +3,6 @@ Training infrastructure with checkpointing, logging, and validation.
 """
 import torch
 import torch.nn as nn
-from torch.amp import autocast, GradScaler
 from torch.utils.tensorboard import SummaryWriter
 import os
 import time
@@ -11,6 +10,19 @@ import warnings
 from tqdm import tqdm
 import numpy as np
 from pathlib import Path
+
+# Import GradScaler with version compatibility
+try:
+    # PyTorch 2.4+
+    from torch.amp import autocast, GradScaler
+except ImportError:
+    try:
+        # PyTorch 2.0-2.3
+        from torch.cuda.amp import autocast, GradScaler
+    except ImportError:
+        # Fallback for older versions or CPU-only
+        from torch.amp import autocast
+        GradScaler = None
 
 # Suppress harmless DataParallel warning (automatically handled by PyTorch)
 warnings.filterwarnings('ignore', message='Was asked to gather along dimension 0')
@@ -40,7 +52,20 @@ class Trainer:
         # Mixed precision training
         self.use_amp = config['system']['mixed_precision']
         device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.scaler = GradScaler(device_type) if self.use_amp else None
+        
+        # Initialize GradScaler with version compatibility
+        if self.use_amp and GradScaler is not None:
+            try:
+                # PyTorch 2.4+ requires device_type parameter
+                self.scaler = GradScaler(device_type)
+            except TypeError:
+                # PyTorch 2.0-2.3 doesn't accept device_type
+                self.scaler = GradScaler()
+        else:
+            self.scaler = None
+            if self.use_amp and GradScaler is None:
+                print("⚠️  Mixed precision requested but GradScaler not available. Disabling mixed precision.")
+                self.use_amp = False
         
         # Tracking
         self.global_step = 0
@@ -346,8 +371,21 @@ class Trainer:
             targets = targets.to(self.device)
             
             # Forward pass with mixed precision
-            device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
-            with autocast(device_type=device_type, enabled=self.use_amp):
+            # Use version-compatible autocast
+            if self.use_amp:
+                device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+                try:
+                    # PyTorch 2.4+ API
+                    autocast_context = autocast(device_type=device_type, enabled=True)
+                except TypeError:
+                    # PyTorch 2.0-2.3 API (no device_type parameter)
+                    autocast_context = autocast(enabled=True)
+            else:
+                # No mixed precision - use dummy context
+                from contextlib import nullcontext
+                autocast_context = nullcontext()
+            
+            with autocast_context:
                 logits, loss = self.model(input_ids, targets)
                 
                 # Handle DataParallel: loss is a vector [num_gpus], need to reduce to scalar
@@ -474,8 +512,21 @@ class Trainer:
             input_ids = input_ids.to(self.device)
             targets = targets.to(self.device)
             
-            device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
-            with autocast(device_type=device_type, enabled=self.use_amp):
+            # Use version-compatible autocast
+            if self.use_amp:
+                device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+                try:
+                    # PyTorch 2.4+ API
+                    autocast_context = autocast(device_type=device_type, enabled=True)
+                except TypeError:
+                    # PyTorch 2.0-2.3 API (no device_type parameter)
+                    autocast_context = autocast(enabled=True)
+            else:
+                # No mixed precision - use dummy context
+                from contextlib import nullcontext
+                autocast_context = nullcontext()
+            
+            with autocast_context:
                 logits, loss = self.model(input_ids, targets)
             
             # Handle DataParallel: loss is a vector [num_gpus], need to reduce to scalar
