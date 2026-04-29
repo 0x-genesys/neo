@@ -34,7 +34,7 @@ data:
   val_split: "validation"
   test_split: "test"
   max_length: 256
-  num_workers: 0  # 0 for Mac compatibility
+  num_workers: 0  # 0 for Mac compatibility (multiprocessing issues)
   pin_memory: false  # False for Mac
   
 # Tokenizer Configuration

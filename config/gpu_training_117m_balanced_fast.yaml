@@ -1,0 +1,120 @@
+# ============================================================================
+# FAST GPU Training - 117M Model (2x T4 Optimized)
+# ============================================================================
+#
+# This config is optimized for 2x T4 GPUs (16GB each)
+# Expected speedup: 3-4x faster than default config
+# Training time: ~10 hours (vs ~30-40 hours)
+#
+# Changes from default:
+# - batch_size: 16 → 48 (3x increase)
+# - gradient_accumulation_steps: 8 → 3 (keeps effective batch ~same)
+# - use_gradient_checkpointing: true → false (speed boost)
+# - log_interval: 100 → 10 (better visibility)
+# - num_workers: 4 → 8 (faster data loading)
+#
+# ============================================================================
+
+model:
+  vocab_size: 100277
+  d_model: 768
+  num_heads: 12
+  num_layers: 12
+  context_length: 512
+  dropout: 0.12
+  use_flash_attention: false
+  use_gradient_checkpointing: false  # CHANGED: Disabled for speed
+
+training:
+  batch_size: 48                      # CHANGED: Increased from 16
+  gradient_accumulation_steps: 3     # CHANGED: Decreased from 8
+  # Effective batch: 288 (48×3×2 GPUs) vs 256 before - similar convergence
+  max_epochs: 8
+  max_steps: 36621
+  learning_rate: 2.0e-4
+  weight_decay: 0.15
+  warmup_steps: 1500
+  max_grad_norm: 1.0
+  dropout: 0.12
+  eval_interval: 500                 # CHANGED: More frequent (was 1000)
+  save_interval: 1000
+  log_interval: 10                   # CHANGED: Much more frequent (was 100)
+
+data:
+  dataset_type: "binary"
+  train_file: "data/balanced_300m/train.bin"
+  val_file: "data/balanced_300m/val.bin"
+  max_length: 512
+  num_workers: 8                     # CHANGED: Increased from 4
+  pin_memory: true
+  
+  huggingface_dataset:
+    repo_id: "0x-genesys/mix_wiki_code_chat_data_300M_tokens"
+    dataset_name: "balanced_300m"
+    auto_download: true
+
+tokenizer:
+  type: "tiktoken"
+  vocab_size: 100277
+
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  type: "cosine"
+  min_lr: 2.0e-5
+
+system:
+  device: "cuda"
+  mixed_precision: true
+  compile_model: false
+  seed: 42
+
+checkpoint:
+  save_dir: "checkpoints/gpu_training_117m_balanced_fast"
+  resume_from: null
+  save_best_only: false
+
+logging:
+  use_wandb: false
+  wandb_project: "transformer-117m-balanced-fast"
+  wandb_entity: null
+  log_dir: "logs/gpu_training_117m_balanced_fast"
+
+huggingface_hub:
+  enabled: true
+  repo_id: "0x-genesys/neo_weights_checkpoints"
+  upload_best_only: false
+
+generation:
+  max_new_tokens: 100
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  num_samples: 3
+
+# ============================================================================
+# PERFORMANCE EXPECTATIONS
+# ============================================================================
+#
+# Speed: ~0.8-1.0 sec/step (vs 2-3 sec/step default)
+# Throughput: ~25,000 tokens/sec (vs ~8,000 default)
+# Total time: ~10 hours (vs ~30-40 hours default)
+# GPU memory: ~10-12GB per GPU (safe for T4)
+# GPU utilization: 90-100%
+#
+# ============================================================================
+# USAGE
+# ============================================================================
+#
+# python train.py --config config/gpu_training_117m_balanced_fast.yaml
+#
+# Monitor GPU:
+#   nvidia-smi -l 1
+#
+# Monitor training:
+#   tensorboard --logdir logs/gpu_training_117m_balanced_fast
+#
+# ============================================================================
