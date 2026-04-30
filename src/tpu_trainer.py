@@ -174,6 +174,17 @@ class TPUTrainer:
         print(f"📍 World size (cores): {get_world_size()}")
         print(f"📍 Ordinal (rank): {get_ordinal()}")
         
+        # Check if curriculum learning is enabled
+        curriculum_config = self.config.get('training', {}).get('curriculum_learning', {})
+        curriculum_enabled = curriculum_config.get('enabled', False)
+        
+        if curriculum_enabled:
+            print(f"\n🎓 Curriculum Learning: ENABLED")
+            print(f"   Phases: Pattern Discovery → Foundation → Bridge → Refinement")
+        else:
+            print(f"\n📚 Curriculum Learning: DISABLED (standard training)")
+        print()
+        
         # Initialize TensorBoard writer
         if self.config['logging']['log_dir']:
             log_dir = Path(self.config['logging']['log_dir'])
@@ -222,6 +233,48 @@ class TPUTrainer:
         
         for epoch in range(start_epoch, max_epochs):
             self.epoch = epoch
+            
+            # Update curriculum distribution if enabled
+            curriculum_config = self.config.get('training', {}).get('curriculum_learning', {})
+            curriculum_enabled = curriculum_config.get('enabled', False)
+            
+            if curriculum_enabled and hasattr(self.train_loader.dataset, 'update_distribution'):
+                epoch_distributions = curriculum_config.get('epoch_distributions', {})
+                # Epochs are 0-indexed in code but 1-indexed in config
+                epoch_num = epoch + 1
+                
+                if epoch_num in epoch_distributions:
+                    new_distribution = epoch_distributions[epoch_num]
+                    sources = curriculum_config.get('sources', ['wikitext', 'stack', 'ultrachat'])
+                    
+                    print(f"\n{'='*80}")
+                    print(f"🎓 CURRICULUM UPDATE - Epoch {epoch_num}")
+                    print(f"{'='*80}")
+                    
+                    # Determine phase name
+                    if epoch_num == 1:
+                        phase = "Current: Pattern Discovery (detect leakage)"
+                    elif epoch_num in [2, 3]:
+                        phase = "Foundation: Knowledge/Logic Hardening"
+                    elif epoch_num == 4:
+                        phase = "Bridge A: Balanced Contextualization"
+                    elif epoch_num == 5:
+                        phase = "Bridge B: Priority Shift"
+                    elif epoch_num == 6:
+                        phase = "Bridge C: Instruction Emergence"
+                    elif epoch_num in [7, 8]:
+                        phase = "Refinement: Behavior & Formatting (The 'Flip')"
+                    else:
+                        phase = "Custom Distribution"
+                    
+                    print(f"Phase: {phase}")
+                    print(f"\nDataset Distribution:")
+                    for source, pct in zip(sources, new_distribution):
+                        print(f"  {source:12s}: {pct:3d}%")
+                    print(f"{'='*80}\n")
+                    
+                    # Update the dataset distribution
+                    self.train_loader.dataset.update_distribution(new_distribution)
             
             # Create parallel loader for efficient TPU data loading
             # This automatically distributes data across all 8 TPU cores
