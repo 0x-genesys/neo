@@ -3,11 +3,10 @@ Main training script.
 """
 import os
 
-# CRITICAL: Set PJRT environment variables BEFORE any torch imports
-# This prevents "SliceBuilder" from attempting to initialize external distributed mesh
-os.environ['PJRT_DEVICE'] = 'TPU'
-os.environ['TPU_PROCESS_ADDRESSES'] = 'local'
-os.environ['TPU_NUM_DEVICES'] = '8'
+# CRITICAL: DO NOT set PJRT environment variables for Kaggle TPU VMs
+# Kaggle TPU VMs are single-host with 8 cores, not multi-host pods
+# Setting TPU_PROCESS_ADDRESSES='local' causes SliceBuilder errors
+# The PJRT runtime will auto-detect the TPU configuration correctly
 
 import torch
 import yaml

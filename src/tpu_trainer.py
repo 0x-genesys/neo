@@ -9,6 +9,12 @@ Implements proper TPU training patterns for Kaggle, Colab, and GCP:
 - Master-only operations for logging and checkpointing
 """
 
+# DO NOT set TPU_IP_ADDRESSES or worker lists.
+# ONLY set these to force PJRT to treat the VM as a standalone 8-core slice.
+os.environ['PJRT_DEVICE'] = 'TPU'
+os.environ['TPU_PROCESS_ADDRESSES'] = 'local'
+os.environ['TPU_NUM_DEVICES'] = '8'
+
 import torch
 import torch.nn as nn
 from pathlib import Path
@@ -563,7 +569,7 @@ class TPUTrainer:
             self._upload_to_hub(checkpoint_path)
     
     def _upload_to_hub(self, checkpoint_path):
-        """Upload checkpoint to HuggingFace Hub."""
+        """Upload checkpoint to HuggingFace Hub and clean up local file."""
         try:
             from huggingface_hub import HfApi
             
@@ -578,6 +584,18 @@ class TPUTrainer:
             )
             
             xm.master_print(f"☁️  Uploaded to HuggingFace Hub: {repo_id}/{checkpoint_path.name}")
+            
+            # Clean up local checkpoint after successful upload to save disk space
+            # Keep only best_model checkpoints locally
+            if 'best_model' not in checkpoint_path.name:
+                try:
+                    checkpoint_path.unlink()
+                    xm.master_print(f"🗑️  Deleted local checkpoint (saved to Hub): {checkpoint_path.name}")
+                except Exception as e:
+                    xm.master_print(f"⚠️  Could not delete local checkpoint: {e}")
+            else:
+                xm.master_print(f"💾 Keeping best model checkpoint locally: {checkpoint_path.name}")
+                
         except Exception as e:
             xm.master_print(f"⚠️  Failed to upload to HuggingFace Hub: {e}")
     
