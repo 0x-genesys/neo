@@ -139,72 +139,45 @@ class TPUTrainer:
         self._load_checkpoint_if_needed()
     
     def train(self):
-        """Start multi-core TPU training."""
+        """Start multi-core TPU training with PJRT runtime."""
         print("\n🚀 Starting TPU training on all available TPU cores...")
         
-        # Spawn training on all TPU cores
-        # torch_xla 2.9+ requires nprocs=None to use all available devices
-        # Use 'spawn' method (not 'fork') for proper TPU initialization
-        # Pass only picklable data, not self
-        xmp.spawn(
-            self._mp_fn_wrapper, 
-            args=(
-                self.model,
-                self.train_loader.dataset,  # Pass dataset, not loader
-                self.val_loader.dataset if self.val_loader else None,
-                self.tokenizer,
-                self.config,
-                self.resume_checkpoint,
-                self.global_step,
-                self.epoch,
-                self.best_val_loss
-            ),
-            nprocs=None, 
-            start_method='spawn'  # Use 'spawn' for TPU, not 'fork'
-        )
+        # PJRT-compatible spawn: no nprocs, auto-discover cores
+        # Use 'fork' as standard for Kaggle TPU VM slices
+        xmp.spawn(self._mp_fn, args=(), nprocs=None, start_method='fork')
         
         print("\n✅ TPU training complete!")
     
-    def _mp_fn_wrapper(self, rank, model, train_dataset, val_dataset, tokenizer, config, 
-                       resume_checkpoint, global_step, epoch, best_val_loss):
+    def _mp_fn(self, rank):
         """
-        Wrapper that receives picklable arguments and calls the actual training function.
+        Multi-processing function that runs on each TPU core.
+        PJRT-compatible: receives rank, accesses self directly.
+        
+        Args:
+            rank: Core rank (0-7 for TPU v3-8)
         """
-        # Store in self for access by other methods
-        self.model = model
-        self.tokenizer = tokenizer
-        self.config = config
-        self.resume_checkpoint = resume_checkpoint
-        self.global_step = global_step
-        self.epoch = epoch
-        self.best_val_loss = best_val_loss
+        # Get TPU device for this core
+        self.device = xm.xla_device()
         
-        # Recreate dataloaders from datasets
-        self.train_loader = torch.utils.data.DataLoader(
-            train_dataset,
-            batch_size=1,  # Will be recreated in _mp_fn
-            shuffle=False
-        )
-        
-        if val_dataset:
-            self.val_loader = torch.utils.data.DataLoader(
-                val_dataset,
-                batch_size=1,
-                shuffle=False
-            )
-        else:
-            self.val_loader = None
-        
-        # Initialize logging objects in this process
-        self.writer = None
-        if config['logging']['log_dir']:
-            log_dir = Path(config['logging']['log_dir'])
+        # Initialize TensorBoard writer in this process (master only)
+        if self.config['logging']['log_dir'] and xm.is_master_ordinal():
+            log_dir = Path(self.config['logging']['log_dir'])
             log_dir.mkdir(parents=True, exist_ok=True)
             from torch.utils.tensorboard import SummaryWriter
             self.writer = SummaryWriter(log_dir, flush_secs=300)
         
-        # Call the actual training function
-        self._mp_fn(rank)
+        # Initialize W&B on master process only
+        if self.use_wandb and xm.is_master_ordinal() and self.wandb_config:
+            try:
+                self.wandb.init(**self.wandb_config)
+                xm.master_print("✅ Weights & Biases initialized")
+            except Exception as e:
+                xm.master_print(f"⚠️  Failed to initialize W&B: {e}")
+                self.use_wandb = False
+        
+        # Wrap model for multi-core training
+        model = xmp.MpModelWrapper(self.model)
+        model = model.to(self.device)
     
     def _load_checkpoint_if_needed(self):
         """Load checkpoint if resume_from is specified in config."""
@@ -265,12 +238,20 @@ class TPUTrainer:
     def _mp_fn(self, rank):
         """
         Multi-processing function that runs on each TPU core.
+        PJRT-compatible: receives rank, accesses self directly.
         
         Args:
             rank: Core rank (0-7 for TPU v3-8)
         """
         # Get TPU device for this core
         self.device = xm.xla_device()
+        
+        # Initialize TensorBoard writer in this process (master only)
+        if self.config['logging']['log_dir'] and xm.is_master_ordinal():
+            log_dir = Path(self.config['logging']['log_dir'])
+            log_dir.mkdir(parents=True, exist_ok=True)
+            from torch.utils.tensorboard import SummaryWriter
+            self.writer = SummaryWriter(log_dir, flush_secs=300)
         
         # Initialize W&B on master process only
         if self.use_wandb and xm.is_master_ordinal() and self.wandb_config:

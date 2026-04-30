@@ -1,6 +1,14 @@
 """
 Main training script.
 """
+import os
+
+# CRITICAL: Set PJRT environment variables BEFORE any torch imports
+# This prevents "SliceBuilder" from attempting to initialize external distributed mesh
+os.environ['PJRT_DEVICE'] = 'TPU'
+os.environ['TPU_PROCESS_ADDRESSES'] = 'local'
+os.environ['TPU_NUM_DEVICES'] = '8'
+
 import torch
 import yaml
 import argparse
@@ -262,14 +270,22 @@ def main():
     except KeyboardInterrupt:
         print("\n\nTraining interrupted by user")
         print("Saving checkpoint...")
-        trainer.save_checkpoint('interrupted_checkpoint.pt')
+        # Use correct method name based on trainer type
+        if hasattr(trainer, 'save_checkpoint'):
+            trainer.save_checkpoint('interrupted_checkpoint.pt')
+        else:
+            trainer._save_checkpoint(trainer.model, 'interrupted_checkpoint.pt')
         print("Checkpoint saved. You can resume training with --resume interrupted_checkpoint.pt")
     except Exception as e:
         print(f"\n\nTraining failed with error: {e}")
         import traceback
         traceback.print_exc()
         print("\nSaving checkpoint...")
-        trainer.save_checkpoint('error_checkpoint.pt')
+        # Use correct method name based on trainer type
+        if hasattr(trainer, 'save_checkpoint'):
+            trainer.save_checkpoint('error_checkpoint.pt')
+        else:
+            print("⚠️  Cannot save checkpoint - method not available")
     
     print("\nTraining complete!")
 
