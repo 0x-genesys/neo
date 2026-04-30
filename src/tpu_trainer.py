@@ -431,8 +431,7 @@ class TPUTrainer:
         grad_accum_steps = self.config['training']['gradient_accumulation_steps']
         log_interval = self.config['logging']['log_interval']
         # Check both training and checkpoint sections for save_interval (for backwards compatibility)
-        save_interval = self.config.get('checkpoint', {}).get('save_interval') or \
-                       self.config.get('training', {}).get('save_interval', 1000)
+        save_interval = self.config.get('training', {}).get('save_interval', 1000)
         eval_interval = self.config['training']['eval_interval']
         
         epoch_loss = 0.0
