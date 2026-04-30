@@ -9,6 +9,18 @@ Implements proper TPU training patterns for Kaggle, Colab, and GCP:
 - Master-only operations for logging and checkpointing
 """
 
+import os
+import sys
+
+# 1. Force the internal XLA runtime to see this as a single-host 8-core machine
+os.environ['TPU_NUM_DEVICES'] = '8'
+os.environ['TPU_CHIPS_PER_HOST_BOUNDS'] = '2,2,1' # Specific 3D mesh for v3-8
+os.environ['TPU_HOST_BOUNDS'] = '1,1,1'
+os.environ['TPU_PROCESS_ADDRESSES'] = 'local'
+
+# 2. Disable the metric server which is causing the port errors in your logs
+os.environ['XLA_METRIC_SERVER_PORT'] = '0'
+
 
 import torch
 import torch.nn as nn
