@@ -70,8 +70,8 @@ training:
   warmup_steps: 1500
   max_grad_norm: 1.0
   dropout: 0.12
-  eval_interval: 5000
-  save_interval: 500
+  eval_interval: 1
+  save_interval: 1
   log_interval: 20
   
   # Curriculum Learning - Same across all hardware
