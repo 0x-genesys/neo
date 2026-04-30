@@ -355,14 +355,13 @@ class Trainer:
         total_loss = 0
         num_batches = 0
         
-        # Calculate how many batches to skip if resuming mid-epoch
+        # Calculate steps per epoch
         batches_per_step = self.config['training']['gradient_accumulation_steps']
-        start_batch = (self.global_step % (len(self.train_loader) // batches_per_step)) * batches_per_step
+        steps_per_epoch = len(self.train_loader) // batches_per_step
         
         pbar = tqdm(
             self.train_loader, 
-            desc=f"Epoch {self.epoch}",
-            initial=start_batch,
+            desc=f"Epoch {self.epoch} | Step {self.global_step}/{self.config['training']['max_steps']}",
             total=len(self.train_loader)
         )
         
@@ -392,6 +391,10 @@ class Trainer:
                 if isinstance(loss, torch.Tensor) and loss.dim() > 0:
                     loss = loss.mean()
                 
+                # Store the actual loss before scaling
+                actual_loss = loss.item()
+                
+                # Scale loss for gradient accumulation
                 loss = loss / self.config['training']['gradient_accumulation_steps']
             
             # Backward pass
@@ -430,17 +433,19 @@ class Trainer:
                 next_eval = ((self.global_step // self.config['training']['eval_interval']) + 1) * self.config['training']['eval_interval']
                 next_save = ((self.global_step // self.config['training']['save_interval']) + 1) * self.config['training']['save_interval']
                 
-                # Update progress bar with current step and next milestone
+                # Get current learning rate
+                lr = self.optimizer.param_groups[0]['lr']
+                
+                # Update progress bar with step info and actual loss
                 pbar.set_description(
-                    f"Epoch {self.epoch} | Step {self.global_step}/{self.config['training']['max_steps']} "
-                    f"(next eval: {next_eval})"
+                    f"Epoch {self.epoch} | Step {self.global_step}/{self.config['training']['max_steps']} | "
+                    f"Loss: {actual_loss:.4f} | LR: {lr:.2e}"
                 )
                 
                 # Logging
                 if self.global_step % self.config['training']['log_interval'] == 0:
-                    lr = self.optimizer.param_groups[0]['lr']
                     self._log_metrics({
-                        'train/loss': loss.item() * self.config['training']['gradient_accumulation_steps'],
+                        'train/loss': actual_loss,
                         'train/lr': lr,
                         'train/step': self.global_step
                     })
@@ -448,7 +453,7 @@ class Trainer:
                     # Also print to console
                     print(f"\n{'='*80}")
                     print(f"Step {self.global_step}/{self.config['training']['max_steps']} | "
-                          f"Loss: {loss.item() * self.config['training']['gradient_accumulation_steps']:.4f} | "
+                          f"Loss: {actual_loss:.4f} | "
                           f"LR: {lr:.2e}")
                     print(f"Next: Log@{next_log} | Eval@{next_eval} | Save@{next_save}")
                     print(f"{'='*80}")
@@ -488,13 +493,8 @@ class Trainer:
                     avg_loss = total_loss / num_batches if num_batches > 0 else 0
                     return avg_loss
             
-            total_loss += loss.item()
+            total_loss += actual_loss
             num_batches += 1
-            
-            pbar.set_postfix({
-                'loss': f"{loss.item():.4f}",
-                'step': f"{self.global_step}/{self.config['training']['max_steps']}"
-            })
         
         return total_loss / num_batches if num_batches > 0 else 0
     
