@@ -105,6 +105,7 @@ class TPUTrainer:
         config['checkpoint'].setdefault('save_dir', 'checkpoints')
         config['training'].setdefault('gradient_accumulation_steps', 1)
         config['training'].setdefault('max_grad_norm', 1.0)
+        config['training'].setdefault('eval_interval', 500)
         
         # TPU configuration
         self.num_cores = 8  # Kaggle TPU v3-8 has 8 cores
@@ -231,19 +232,41 @@ class TPUTrainer:
         # Start from the epoch we left off at (if resuming)
         start_epoch = self.epoch
         
+        # Check if curriculum learning is enabled
+        curriculum_config = self.config.get('training', {}).get('curriculum_learning', {})
+        curriculum_enabled = curriculum_config.get('enabled', False)
+        
+        # If resuming mid-training, update curriculum to match current epoch
+        if start_epoch > 0 and curriculum_enabled and hasattr(self.train_loader.dataset, 'update_distribution'):
+            epoch_distributions = curriculum_config.get('epoch_distributions', {})
+            epoch_num = start_epoch + 1  # 1-indexed for config
+            
+            if epoch_num in epoch_distributions:
+                new_distribution = epoch_distributions[epoch_num]
+                sources = curriculum_config.get('sources', ['wikitext', 'stack', 'ultrachat'])
+                
+                print(f"\n{'='*80}")
+                print(f"🎓 RESUMING WITH CURRICULUM - Epoch {epoch_num}")
+                print(f"{'='*80}")
+                print(f"Restoring dataset distribution for current epoch:")
+                for source, pct in zip(sources, new_distribution):
+                    print(f"  {source:12s}: {pct:3d}%")
+                print(f"{'='*80}\n")
+                
+                # Update the dataset distribution
+                self.train_loader.dataset.update_distribution(new_distribution)
+        
         for epoch in range(start_epoch, max_epochs):
             self.epoch = epoch
             
-            # Update curriculum distribution if enabled
-            curriculum_config = self.config.get('training', {}).get('curriculum_learning', {})
-            curriculum_enabled = curriculum_config.get('enabled', False)
-            
+            # Update curriculum distribution if enabled (only at epoch boundaries)
             if curriculum_enabled and hasattr(self.train_loader.dataset, 'update_distribution'):
                 epoch_distributions = curriculum_config.get('epoch_distributions', {})
                 # Epochs are 0-indexed in code but 1-indexed in config
                 epoch_num = epoch + 1
                 
-                if epoch_num in epoch_distributions:
+                # Only update if this is a new epoch (not resuming mid-epoch)
+                if epoch > start_epoch and epoch_num in epoch_distributions:
                     new_distribution = epoch_distributions[epoch_num]
                     sources = curriculum_config.get('sources', ['wikitext', 'stack', 'ultrachat'])
                     
@@ -371,21 +394,39 @@ class TPUTrainer:
         grad_accum_steps = self.config['training']['gradient_accumulation_steps']
         log_interval = self.config['logging']['log_interval']
         save_interval = self.config['checkpoint']['save_interval']
+        eval_interval = self.config['training']['eval_interval']
         
         epoch_loss = 0.0
         step_count = 0
+        
+        # Calculate how many batches to skip if resuming mid-epoch
+        batch_size = self.config['training']['batch_size']
+        dataset_size = len(train_loader.dataset)
+        steps_per_epoch = (dataset_size // batch_size) // grad_accum_steps
+        batches_to_skip = 0
+        
+        if self.global_step > 0:
+            # Calculate which batch we should be at
+            completed_steps_this_epoch = self.global_step % steps_per_epoch
+            batches_to_skip = completed_steps_this_epoch * grad_accum_steps
+            if batches_to_skip > 0:
+                print(f"⏭️  Skipping {batches_to_skip} batches to resume from step {self.global_step}")
         
         # Add tqdm progress bar
         try:
             from tqdm import tqdm
             pbar = tqdm(enumerate(train_loader), total=len(train_loader), 
                        desc=f"Epoch {self.epoch}", 
-                       disable=False)
+                       disable=False,
+                       initial=batches_to_skip)
         except ImportError:
             # Fallback if tqdm not available
             pbar = enumerate(train_loader)
         
         for batch_idx, batch in pbar:
+            # Skip batches if resuming mid-epoch
+            if batch_idx < batches_to_skip:
+                continue
             # Move data to TPU device
             if isinstance(batch, dict):
                 batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
@@ -450,11 +491,12 @@ class TPUTrainer:
                 
                 self.global_step += 1
                 
-                # Logging
-                if self.global_step % log_interval == 0:
-                    avg_loss = epoch_loss / step_count
-                    lr = self.optimizer.param_groups[0]['lr']
-                    
+                # Logging - always print, but only log to TB/W&B at intervals
+                avg_loss = epoch_loss / step_count if step_count > 0 else 0.0
+                lr = self.optimizer.param_groups[0]['lr']
+                
+                # Print every step (or every N steps if you want less output)
+                if step_count > 0 and (self.global_step % log_interval == 0 or step_count >= log_interval):
                     log_msg = (
                         f"Epoch {self.epoch} | Step {self.global_step} | "
                         f"Loss: {avg_loss:.4f} | LR: {lr:.2e}"
@@ -478,6 +520,26 @@ class TPUTrainer:
                     
                     epoch_loss = 0.0
                     step_count = 0
+                
+                # Validation at eval_interval
+                if self.global_step % eval_interval == 0:
+                    print(f"\n{'='*80}")
+                    print(f"🔍 VALIDATION at step {self.global_step}")
+                    print(f"{'='*80}")
+                    val_loss = self._validate(model)
+                    
+                    print(f"Validation loss: {val_loss:.4f}")
+                    
+                    # Save best model
+                    if val_loss < self.best_val_loss:
+                        self.best_val_loss = val_loss
+                        print(f"✅ New best validation loss! Saving best model...")
+                        self._save_checkpoint(model, f"best_model_step_{self.global_step}.pt")
+                    else:
+                        print(f"Current best: {self.best_val_loss:.4f}")
+                    
+                    model.train()
+                    print(f"{'='*80}\n")
                 
                 # Checkpointing
                 if self.global_step % save_interval == 0:
