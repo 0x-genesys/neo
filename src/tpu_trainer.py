@@ -709,9 +709,7 @@ class TPUTrainer:
             self.wandb.log(metrics, step=self.global_step)
     
     def _save_checkpoint(self, model, filename):
-        """Save checkpoint (memory-optimized)."""
-        import torch_xla.utils.serialization as xser
-        
+        """Save checkpoint with integrity verification."""
         checkpoint_path = Path(self.config['checkpoint']['save_dir']) / filename
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         
@@ -725,12 +723,52 @@ class TPUTrainer:
             'config': self.config
         }
         
-        # Memory-optimized save
-        xser.save(checkpoint, str(checkpoint_path))
+        # Use standard torch.save instead of xser.save for reliability
+        # xser.save may not block until write is complete
+        print(f"💾 Saving checkpoint to {checkpoint_path}...")
         
-        print(f"💾 Checkpoint saved: {checkpoint_path}")
+        # Ensure all XLA operations are complete before saving
+        xm.mark_step()
+        xm.wait_device_ops()
         
-        # Upload to HuggingFace Hub if enabled
+        # Save checkpoint
+        torch.save(checkpoint, str(checkpoint_path))
+        
+        # Verify checkpoint was saved correctly
+        import os
+        import time
+        
+        # Wait a moment for filesystem to sync
+        time.sleep(0.5)
+        
+        if not os.path.exists(checkpoint_path):
+            print(f"❌ ERROR: Checkpoint file not found after save: {checkpoint_path}")
+            return
+        
+        file_size = os.path.getsize(checkpoint_path)
+        file_size_mb = file_size / 1024 / 1024
+        
+        # Sanity check: checkpoint should be at least 100MB for 117M model
+        min_size_mb = 100
+        if file_size_mb < min_size_mb:
+            print(f"❌ ERROR: Checkpoint size ({file_size_mb:.2f} MB) is too small!")
+            print(f"   Expected at least {min_size_mb} MB for 117M model.")
+            print(f"   Checkpoint may be corrupted. NOT uploading.")
+            return
+        
+        # Try to load checkpoint to verify integrity
+        try:
+            test_load = torch.load(checkpoint_path, map_location='cpu')
+            if 'model_state_dict' not in test_load:
+                print(f"❌ ERROR: Checkpoint missing model_state_dict!")
+                return
+            print(f"✅ Checkpoint saved and verified: {checkpoint_path} ({file_size_mb:.2f} MB)")
+        except Exception as e:
+            print(f"❌ ERROR: Checkpoint failed integrity check: {e}")
+            print(f"   NOT uploading corrupted checkpoint.")
+            return
+        
+        # Upload to HuggingFace Hub if enabled (only after verification)
         if self.config.get('huggingface_hub', {}).get('enabled', False):
             self._upload_to_hub(checkpoint_path)
     
