@@ -229,8 +229,20 @@ class TPUTrainer:
         max_epochs = self.config['training'].get('max_epochs', 10)
         max_steps = self.config['training'].get('max_steps', None)
         
+        # Calculate steps per epoch
+        steps_per_epoch = max_steps // max_epochs if max_steps else 1000
+        
         # Start from the epoch we left off at (if resuming)
         start_epoch = self.epoch
+        
+        # If resuming mid-training and we've completed this epoch, move to next
+        if self.global_step > 0:
+            calculated_epoch = self.global_step // steps_per_epoch
+            if calculated_epoch > self.epoch:
+                print(f"⚠️  Checkpoint says epoch {self.epoch}, but step {self.global_step} indicates epoch {calculated_epoch}")
+                print(f"   Adjusting to epoch {calculated_epoch}")
+                self.epoch = calculated_epoch
+                start_epoch = calculated_epoch
         
         # Check if curriculum learning is enabled
         curriculum_config = self.config.get('training', {}).get('curriculum_learning', {})
@@ -258,6 +270,19 @@ class TPUTrainer:
         
         for epoch in range(start_epoch, max_epochs):
             self.epoch = epoch
+            
+            # Check if we should skip this epoch entirely (already completed)
+            epoch_start_step = epoch * steps_per_epoch
+            epoch_end_step = (epoch + 1) * steps_per_epoch
+            
+            if self.global_step >= epoch_end_step:
+                print(f"⏭️  Skipping epoch {epoch} (already completed, at step {self.global_step})")
+                continue
+            
+            # If resuming mid-epoch, note it
+            if self.global_step > epoch_start_step:
+                steps_into_epoch = self.global_step - epoch_start_step
+                print(f"📍 Continuing epoch {epoch} from step {self.global_step} ({steps_into_epoch}/{steps_per_epoch} steps into epoch)")
             
             # Update curriculum distribution if enabled (only at epoch boundaries)
             if curriculum_enabled and hasattr(self.train_loader.dataset, 'update_distribution'):
@@ -410,40 +435,25 @@ class TPUTrainer:
         epoch_loss = 0.0
         step_count = 0
         
-        # Calculate how many batches to skip if resuming mid-epoch
-        # Use self.train_loader (original DataLoader) not train_loader (PerDeviceLoader)
-        batch_size = self.config['training']['batch_size']
-        dataset_size = len(self.train_loader.dataset)
-        steps_per_epoch = (dataset_size // batch_size) // grad_accum_steps
-        batches_to_skip = 0
+        # Calculate steps per epoch for progress tracking
+        max_steps = self.config['training'].get('max_steps')
+        max_epochs = self.config['training'].get('max_epochs', 8)
+        steps_per_epoch = max_steps // max_epochs if max_steps else len(self.train_loader)
         
-        if self.global_step > 0:
-            # Calculate which batch we should be at
-            completed_steps_this_epoch = self.global_step % steps_per_epoch
-            batches_to_skip = completed_steps_this_epoch * grad_accum_steps
-            if batches_to_skip > 0:
-                print(f"⏭️  Skipping {batches_to_skip} batches to resume from step {self.global_step}")
+        # Calculate how many steps we've already completed in this epoch
+        steps_completed_this_epoch = self.global_step % steps_per_epoch
         
         # Add tqdm progress bar
         try:
             from tqdm import tqdm
-            # Don't use initial parameter - we'll handle the display manually
             pbar = tqdm(enumerate(train_loader), 
                        total=len(self.train_loader), 
-                       desc=f"Epoch {self.epoch}",
+                       desc=f"Epoch {self.epoch} (step {self.global_step})",
                        disable=False)
         except ImportError:
-            # Fallback if tqdm not available
             pbar = enumerate(train_loader)
         
         for batch_idx, batch in pbar:
-            # Skip batches if resuming mid-epoch
-            if batch_idx < batches_to_skip:
-                continue
-            
-            # Update tqdm description to show we're past the skipped batches
-            if hasattr(pbar, 'set_description') and batch_idx == batches_to_skip:
-                pbar.set_description(f"Epoch {self.epoch} (resumed from batch {batches_to_skip})")
             # Move data to TPU device
             if isinstance(batch, dict):
                 batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
