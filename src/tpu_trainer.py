@@ -285,13 +285,24 @@ class TPUTrainer:
             if 'epoch' in checkpoint:
                 self.epoch = checkpoint['epoch']
                 print(f"   ✅ Resuming from epoch: {self.epoch}")
+            else:
+                # Calculate epoch from global_step if not in checkpoint
+                # Estimate: steps_per_epoch = len(train_loader) / grad_accum_steps
+                if self.global_step > 0 and hasattr(self.train_loader, 'dataset'):
+                    batch_size = self.config['training'].get('batch_size', 16)
+                    grad_accum = self.config['training'].get('gradient_accumulation_steps', 1)
+                    dataset_size = len(self.train_loader.dataset)
+                    steps_per_epoch = (dataset_size // batch_size) // grad_accum
+                    if steps_per_epoch > 0:
+                        self.epoch = self.global_step // steps_per_epoch
+                        print(f"   ✅ Calculated epoch from step: {self.epoch}")
             
             if 'best_val_loss' in checkpoint:
                 self.best_val_loss = checkpoint['best_val_loss']
                 print(f"   ✅ Best validation loss: {self.best_val_loss:.4f}")
             
             print(f"✅ Checkpoint loaded successfully!")
-            print(f"   Continuing training from step {self.global_step}")
+            print(f"   Continuing training from epoch {self.epoch}, step {self.global_step}")
             
         except Exception as e:
             print(f"❌ Error loading checkpoint: {e}")
@@ -311,7 +322,17 @@ class TPUTrainer:
         epoch_loss = 0.0
         step_count = 0
         
-        for batch_idx, batch in enumerate(train_loader):
+        # Add tqdm progress bar
+        try:
+            from tqdm import tqdm
+            pbar = tqdm(enumerate(train_loader), total=len(train_loader), 
+                       desc=f"Epoch {self.epoch}", 
+                       disable=False)
+        except ImportError:
+            # Fallback if tqdm not available
+            pbar = enumerate(train_loader)
+        
+        for batch_idx, batch in pbar:
             # Move data to TPU device
             if isinstance(batch, dict):
                 batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
@@ -381,10 +402,19 @@ class TPUTrainer:
                     avg_loss = epoch_loss / step_count
                     lr = self.optimizer.param_groups[0]['lr']
                     
-                    print(
+                    log_msg = (
                         f"Epoch {self.epoch} | Step {self.global_step} | "
                         f"Loss: {avg_loss:.4f} | LR: {lr:.2e}"
                     )
+                    print(log_msg)
+                    
+                    # Update tqdm if available
+                    if hasattr(pbar, 'set_postfix'):
+                        pbar.set_postfix({
+                            'loss': f'{avg_loss:.4f}',
+                            'lr': f'{lr:.2e}',
+                            'step': self.global_step
+                        })
                     
                     # Log to TensorBoard and W&B
                     self._log_metrics({
@@ -410,8 +440,18 @@ class TPUTrainer:
         total_loss = 0.0
         total_samples = 0
         
+        # Add tqdm progress bar
+        try:
+            from tqdm import tqdm
+            val_iter = tqdm(para_loader.per_device_loader(self.device), 
+                           desc="Validation", 
+                           total=len(self.val_loader),
+                           disable=False)
+        except ImportError:
+            val_iter = para_loader.per_device_loader(self.device)
+        
         with torch.no_grad():
-            for batch in para_loader.per_device_loader(self.device):
+            for batch in val_iter:
                 # Move data to device
                 if isinstance(batch, dict):
                     batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
