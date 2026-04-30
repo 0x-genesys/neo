@@ -21,21 +21,32 @@ def get_device_info():
         'cuda_available': torch.cuda.is_available(),
         'mps_available': torch.backends.mps.is_available() if hasattr(torch.backends, 'mps') else False,
         'tpu_available': False,
+        'tpu_type': None,  # 'kaggle', 'colab', 'gcp', or None
         'cpu_count': torch.get_num_threads(),
     }
     
-    # TPU detection
+    # TPU detection - check for different environments
     try:
         import torch_xla
         import torch_xla.core.xla_model as xm
         info['tpu_available'] = True
         info['tpu_version'] = torch_xla.__version__
-        try:
-            info['tpu_cores'] = xm.xrt_world_size()
-            info['tpu_ordinal'] = xm.get_ordinal()
-        except:
-            info['tpu_cores'] = 'Unknown'
-            info['tpu_ordinal'] = 0
+        
+        # Detect TPU environment type
+        if os.path.exists('/kaggle'):
+            info['tpu_type'] = 'kaggle'
+            info['tpu_cores'] = 8  # Kaggle TPU v3-8
+        elif os.path.exists('/content'):  # Colab
+            info['tpu_type'] = 'colab'
+            info['tpu_cores'] = 8  # Colab TPU v2-8
+        else:
+            info['tpu_type'] = 'gcp'  # Google Cloud Platform
+            try:
+                info['tpu_cores'] = xm.xrt_world_size()
+                info['tpu_ordinal'] = xm.get_ordinal()
+            except:
+                info['tpu_cores'] = 8
+                info['tpu_ordinal'] = 0
     except ImportError:
         pass
     
@@ -149,10 +160,24 @@ def select_device(preferred_device='auto', verbose=True):
         print()
         
         if device_type == 'TPU':
-            print(f"✅ Using Google Cloud TPU")
-            print(f"   torch_xla version: {device_info.get('tpu_version', 'Unknown')}")
-            print(f"   TPU cores: {device_info.get('tpu_cores', 'Unknown')}")
-            print(f"   TPU ordinal: {device_info.get('tpu_ordinal', 0)}")
+            print(f"✅ Using TPU")
+            tpu_type = device_info.get('tpu_type', 'unknown')
+            if tpu_type == 'kaggle':
+                print(f"   Environment: Kaggle TPU v3-8")
+                print(f"   Cores: 8")
+                print(f"   Note: Use torch_xla for distributed training")
+            elif tpu_type == 'colab':
+                print(f"   Environment: Google Colab TPU v2-8")
+                print(f"   Cores: 8")
+                print(f"   Note: Use torch_xla for distributed training")
+            elif tpu_type == 'gcp':
+                print(f"   Environment: Google Cloud Platform TPU")
+                print(f"   torch_xla version: {device_info.get('tpu_version', 'Unknown')}")
+                print(f"   TPU cores: {device_info.get('tpu_cores', 'Unknown')}")
+                print(f"   TPU ordinal: {device_info.get('tpu_ordinal', 0)}")
+            else:
+                print(f"   torch_xla version: {device_info.get('tpu_version', 'Unknown')}")
+                print(f"   TPU cores: {device_info.get('tpu_cores', 8)}")
             print(f"   Note: TPU provides excellent performance for large-scale training")
         elif device_type == 'CUDA':
             print(f"✅ Using CUDA GPU")
@@ -302,13 +327,34 @@ def print_device_recommendations(device):
     print("="*80)
     
     if 'xla' in device_str or 'tpu' in device_str.lower():
-        print("✅ TPU detected - excellent for large-scale training")
-        print("   • Use bfloat16 mixed precision for optimal performance")
-        print("   • Batch size should be large (128-512) for TPU efficiency")
-        print("   • Use XLA-optimized operations when possible")
-        print("   • Avoid frequent host-device synchronization")
-        print("   • Use torch_xla.core.xla_model.mark_step() for gradient updates")
-        print("   • Monitor TPU utilization with Cloud Console")
+        # Get TPU type from device info
+        device_info = get_device_info()
+        tpu_type = device_info.get('tpu_type', 'unknown')
+        
+        if tpu_type == 'kaggle':
+            print("✅ Kaggle TPU v3-8 detected")
+            print("   • Use batch size 128-512 for optimal performance")
+            print("   • torch_xla handles distributed training across 8 cores")
+            print("   • Data should be in GCS or local disk")
+            print("   • Use xm.master_print() for printing from main process")
+            print("   • Save checkpoints frequently (12-hour session limit)")
+            print("   • Enable HuggingFace Hub upload for checkpoint persistence")
+        elif tpu_type == 'colab':
+            print("✅ Google Colab TPU v2-8 detected")
+            print("   • Use batch size 128-512 for optimal performance")
+            print("   • torch_xla handles distributed training across 8 cores")
+            print("   • Data should be in GCS or local disk")
+            print("   • Use xm.master_print() for printing from main process")
+            print("   • Save checkpoints frequently (session can disconnect)")
+            print("   • Enable HuggingFace Hub upload for checkpoint persistence")
+        else:
+            print("✅ TPU detected - excellent for large-scale training")
+            print("   • Use bfloat16 mixed precision for optimal performance")
+            print("   • Batch size should be large (128-512) for TPU efficiency")
+            print("   • Use XLA-optimized operations when possible")
+            print("   • Avoid frequent host-device synchronization")
+            print("   • Use torch_xla.core.xla_model.mark_step() for gradient updates")
+            print("   • Monitor TPU utilization with Cloud Console")
     
     elif 'cuda' in device_str:
         print("✅ CUDA GPU detected - optimal for training")

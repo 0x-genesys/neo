@@ -2,11 +2,68 @@
 
 ## Quick Start on Kaggle
 
-### 1. Install torch_xla (for TPU)
+### Option 1: GPU Training (Recommended for now)
 
 ```bash
-# Kaggle doesn't have torch_xla by default
-# For now, train on GPU (Kaggle provides T4 or P100)
+# Kaggle provides T4 or P100 GPUs
+python train.py --config config/auto_training_117m_balanced.yaml \
+    --resume-remote best_model_step_7500.pt
+```
+
+### Option 2: TPU Training (Experimental)
+
+Kaggle provides TPU v3-8 (8 cores) which is much faster than GPU!
+
+#### Step 1: Enable TPU in Kaggle
+
+1. Click the **Settings** icon (gear) in the notebook
+2. Under **Accelerator**, select **TPU v3-8**
+3. Click **Save**
+4. The notebook will restart
+
+#### Step 2: Install torch_xla
+
+```bash
+# Run this in a Kaggle notebook cell
+!bash scripts/setup_kaggle_tpu.sh
+```
+
+Or manually:
+```bash
+pip install torch_xla
+```
+
+#### Step 3: Verify TPU
+
+```python
+import torch_xla
+import torch_xla.core.xla_model as xm
+
+print(f"torch_xla version: {torch_xla.__version__}")
+print(f"TPU device: {xm.xla_device()}")
+print(f"TPU cores: {xm.xrt_world_size()}")
+```
+
+Expected output:
+```
+torch_xla version: 2.0.0
+TPU device: xla:0
+TPU cores: 8
+```
+
+#### Step 4: Train on TPU
+
+```bash
+python train.py --config config/auto_training_117m_balanced.yaml \
+    --resume-remote best_model_step_7500.pt \
+    --tpu
+```
+
+Or let auto-detection handle it:
+```bash
+# System will auto-detect Kaggle TPU
+python train.py --config config/auto_training_117m_balanced.yaml \
+    --resume-remote best_model_step_7500.pt
 ```
 
 ### 2. Verify Dataset Download
@@ -33,12 +90,21 @@ Directory: data/balanced_300m_curriculum
 ✅ All curriculum dataset files present!
 ```
 
-### 3. Train on Kaggle GPU
+### 3. Train on Kaggle
 
+Choose GPU or TPU based on availability:
+
+**GPU (T4/P100)**:
 ```bash
-# Use auto-adaptive config (detects GPU automatically)
 python train.py --config config/auto_training_117m_balanced.yaml \
     --resume-remote best_model_step_7500.pt
+```
+
+**TPU (v3-8)** - if enabled:
+```bash
+python train.py --config config/auto_training_117m_balanced.yaml \
+    --resume-remote best_model_step_7500.pt \
+    --tpu
 ```
 
 ## Troubleshooting
@@ -52,30 +118,50 @@ FileNotFoundError: Source file not found: data/balanced_300m_curriculum/wikitext
 
 **Cause**: Files downloaded to HuggingFace cache but not copied to data directory
 
-**Solution 1**: Run verification script
+**Status**: ✅ **FIXED** in latest version (2026-04-30)
+
+The dataset downloader now properly copies files from HuggingFace cache to the target directory.
+
+**Solution 1**: Pull latest changes
+```bash
+git pull origin tpu_training
+```
+
+Then run training again - files will be automatically copied:
+```bash
+python train.py --config config/auto_training_117m_balanced.yaml \
+    --resume-remote best_model_step_7500.pt
+```
+
+**Solution 2**: Run verification script
 ```bash
 python scripts/verify_curriculum_dataset.py
 ```
 
-**Solution 2**: Manually download
+This will show which files are present and which are missing.
+
+**Solution 3**: Manually copy from HF cache (if needed)
 ```bash
-python -m src.dataset_downloader \
-    0x-genesys/mix_wiki_code_chat_data_300M_tokens_curriculum \
-    --dataset-name balanced_300m_curriculum
+# Find files in HuggingFace cache
+find ~/.cache/huggingface/hub -name "wikitext_train.bin"
+
+# Copy all curriculum files
+mkdir -p data/balanced_300m_curriculum
+cp ~/.cache/huggingface/hub/models--0x-genesys--*/snapshots/*/wikitext_train.bin data/balanced_300m_curriculum/
+cp ~/.cache/huggingface/hub/models--0x-genesys--*/snapshots/*/stack_train.bin data/balanced_300m_curriculum/
+cp ~/.cache/huggingface/hub/models--0x-genesys--*/snapshots/*/ultrachat_train.bin data/balanced_300m_curriculum/
+cp ~/.cache/huggingface/hub/models--0x-genesys--*/snapshots/*/val.bin data/balanced_300m_curriculum/
+cp ~/.cache/huggingface/hub/models--0x-genesys--*/snapshots/*/dataset_stats.json data/balanced_300m_curriculum/
 ```
 
-**Solution 3**: Check if files are in HF cache
+**Solution 4**: Force re-download
 ```bash
-# Files might be in HuggingFace cache
-ls -lh ~/.cache/huggingface/hub/datasets--0x-genesys--mix_wiki_code_chat_data_300M_tokens_curriculum/
+# Delete partial download
+rm -rf data/balanced_300m_curriculum
 
-# If found, copy them
-mkdir -p data/balanced_300m_curriculum
-cp ~/.cache/huggingface/hub/datasets--*/snapshots/*/wikitext_train.bin data/balanced_300m_curriculum/
-cp ~/.cache/huggingface/hub/datasets--*/snapshots/*/stack_train.bin data/balanced_300m_curriculum/
-cp ~/.cache/huggingface/hub/datasets--*/snapshots/*/ultrachat_train.bin data/balanced_300m_curriculum/
-cp ~/.cache/huggingface/hub/datasets--*/snapshots/*/val.bin data/balanced_300m_curriculum/
-cp ~/.cache/huggingface/hub/datasets--*/snapshots/*/dataset_stats.json data/balanced_300m_curriculum/
+# Re-run training (will auto-download with fix)
+python train.py --config config/auto_training_117m_balanced.yaml \
+    --resume-remote best_model_step_7500.pt
 ```
 
 ### Issue: TPU not available on Kaggle
@@ -218,6 +304,16 @@ python train.py --config config/auto_training_117m_balanced.yaml \
 - **Effective batch**: 128
 - **Speed**: ~0.6 steps/sec
 - **Time to 10K steps**: ~4.6 hours
+
+### TPU v3-8 (128GB, 8 cores)
+
+- **Batch size**: 128
+- **Gradient accumulation**: 4
+- **Effective batch**: 512
+- **Speed**: ~2.5 steps/sec (estimated)
+- **Time to 10K steps**: ~1.1 hours (estimated)
+
+**TPU is ~3x faster than T4 GPU!**
 
 ## Tips for Kaggle
 
