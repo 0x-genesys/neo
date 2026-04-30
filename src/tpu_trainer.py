@@ -106,15 +106,8 @@ class TPUTrainer:
         # Checkpoint to resume from (if any)
         self.resume_checkpoint = None
         
-        # Logging
+        # Logging - will be initialized in each spawned process
         self.writer = None
-        if config['logging']['log_dir']:
-            log_dir = Path(config['logging']['log_dir'])
-            log_dir.mkdir(parents=True, exist_ok=True)
-            # TensorBoard writer (will be used by master process only)
-            from torch.utils.tensorboard import SummaryWriter
-            self.writer = SummaryWriter(log_dir, flush_secs=300)
-            print(f"TensorBoard logging to: {log_dir}")
         
         # Weights & Biases
         self.use_wandb = config['logging']['use_wandb']
@@ -151,9 +144,66 @@ class TPUTrainer:
         
         # Spawn training on all TPU cores
         # torch_xla 2.9+ requires nprocs=None to use all available devices
-        xmp.spawn(self._mp_fn, nprocs=None, start_method='fork')
+        # Pass only picklable data, not self
+        xmp.spawn(
+            self._mp_fn_wrapper, 
+            args=(
+                self.model,
+                self.train_loader.dataset,  # Pass dataset, not loader
+                self.val_loader.dataset if self.val_loader else None,
+                self.tokenizer,
+                self.config,
+                self.resume_checkpoint,
+                self.global_step,
+                self.epoch,
+                self.best_val_loss
+            ),
+            nprocs=None, 
+            start_method='fork'
+        )
         
         print("\n✅ TPU training complete!")
+    
+    def _mp_fn_wrapper(self, rank, model, train_dataset, val_dataset, tokenizer, config, 
+                       resume_checkpoint, global_step, epoch, best_val_loss):
+        """
+        Wrapper that receives picklable arguments and calls the actual training function.
+        """
+        # Store in self for access by other methods
+        self.model = model
+        self.tokenizer = tokenizer
+        self.config = config
+        self.resume_checkpoint = resume_checkpoint
+        self.global_step = global_step
+        self.epoch = epoch
+        self.best_val_loss = best_val_loss
+        
+        # Recreate dataloaders from datasets
+        self.train_loader = torch.utils.data.DataLoader(
+            train_dataset,
+            batch_size=1,  # Will be recreated in _mp_fn
+            shuffle=False
+        )
+        
+        if val_dataset:
+            self.val_loader = torch.utils.data.DataLoader(
+                val_dataset,
+                batch_size=1,
+                shuffle=False
+            )
+        else:
+            self.val_loader = None
+        
+        # Initialize logging objects in this process
+        self.writer = None
+        if config['logging']['log_dir']:
+            log_dir = Path(config['logging']['log_dir'])
+            log_dir.mkdir(parents=True, exist_ok=True)
+            from torch.utils.tensorboard import SummaryWriter
+            self.writer = SummaryWriter(log_dir, flush_secs=300)
+        
+        # Call the actual training function
+        self._mp_fn(rank)
     
     def _load_checkpoint_if_needed(self):
         """Load checkpoint if resume_from is specified in config."""

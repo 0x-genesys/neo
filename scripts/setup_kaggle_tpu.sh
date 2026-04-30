@@ -27,10 +27,12 @@ echo "   This may take a few minutes..."
 echo ""
 
 # Download and run the official PyTorch XLA setup script (as per Kaggle docs)
-curl -s https://raw.githubusercontent.com/pytorch/xla/master/contrib/scripts/env-setup.py -o /tmp/pytorch-xla-env-setup.py
-
-# Run setup script with nightly version and required packages
-python3 /tmp/pytorch-xla-env-setup.py --version nightly --apt-packages libomp5 libopenblas-dev
+pip install --force-reinstall --no-cache-dir \
+    torch==2.9.0 \
+    torch_xla[tpu]==2.9.0 \
+    torchvision==0.24.0 \
+    fsspec==2026.2.0 \
+    -f https://storage.googleapis.com/libtpu-releases/index.html
 
 if [ $? -eq 0 ]; then
     echo "✅ torch_xla installed successfully"
