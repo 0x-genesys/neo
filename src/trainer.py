@@ -3,7 +3,6 @@ Training infrastructure with checkpointing, logging, and validation.
 """
 import torch
 import torch.nn as nn
-from torch.amp import autocast, GradScaler
 from torch.utils.tensorboard import SummaryWriter
 import os
 import time
@@ -11,6 +10,19 @@ import warnings
 from tqdm import tqdm
 import numpy as np
 from pathlib import Path
+
+# Import GradScaler with version compatibility
+try:
+    # PyTorch 2.4+
+    from torch.amp import autocast, GradScaler
+except ImportError:
+    try:
+        # PyTorch 2.0-2.3
+        from torch.cuda.amp import autocast, GradScaler
+    except ImportError:
+        # Fallback for older versions or CPU-only
+        from torch.amp import autocast
+        GradScaler = None
 
 # Suppress harmless DataParallel warning (automatically handled by PyTorch)
 warnings.filterwarnings('ignore', message='Was asked to gather along dimension 0')
@@ -40,7 +52,20 @@ class Trainer:
         # Mixed precision training
         self.use_amp = config['system']['mixed_precision']
         device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.scaler = GradScaler(device_type) if self.use_amp else None
+        
+        # Initialize GradScaler with version compatibility
+        if self.use_amp and GradScaler is not None:
+            try:
+                # PyTorch 2.4+ requires device_type parameter
+                self.scaler = GradScaler(device_type)
+            except TypeError:
+                # PyTorch 2.0-2.3 doesn't accept device_type
+                self.scaler = GradScaler()
+        else:
+            self.scaler = None
+            if self.use_amp and GradScaler is None:
+                print("⚠️  Mixed precision requested but GradScaler not available. Disabling mixed precision.")
+                self.use_amp = False
         
         # Tracking
         self.global_step = 0
@@ -330,14 +355,13 @@ class Trainer:
         total_loss = 0
         num_batches = 0
         
-        # Calculate how many batches to skip if resuming mid-epoch
+        # Calculate steps per epoch
         batches_per_step = self.config['training']['gradient_accumulation_steps']
-        start_batch = (self.global_step % (len(self.train_loader) // batches_per_step)) * batches_per_step
+        steps_per_epoch = len(self.train_loader) // batches_per_step
         
         pbar = tqdm(
             self.train_loader, 
-            desc=f"Epoch {self.epoch}",
-            initial=start_batch,
+            desc=f"Epoch {self.epoch} | Step {self.global_step}/{self.config['training']['max_steps']}",
             total=len(self.train_loader)
         )
         
@@ -346,14 +370,31 @@ class Trainer:
             targets = targets.to(self.device)
             
             # Forward pass with mixed precision
-            device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
-            with autocast(device_type=device_type, enabled=self.use_amp):
+            # Use version-compatible autocast
+            if self.use_amp:
+                device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+                try:
+                    # PyTorch 2.4+ API
+                    autocast_context = autocast(device_type=device_type, enabled=True)
+                except TypeError:
+                    # PyTorch 2.0-2.3 API (no device_type parameter)
+                    autocast_context = autocast(enabled=True)
+            else:
+                # No mixed precision - use dummy context
+                from contextlib import nullcontext
+                autocast_context = nullcontext()
+            
+            with autocast_context:
                 logits, loss = self.model(input_ids, targets)
                 
                 # Handle DataParallel: loss is a vector [num_gpus], need to reduce to scalar
                 if isinstance(loss, torch.Tensor) and loss.dim() > 0:
                     loss = loss.mean()
                 
+                # Store the actual loss before scaling
+                actual_loss = loss.item()
+                
+                # Scale loss for gradient accumulation
                 loss = loss / self.config['training']['gradient_accumulation_steps']
             
             # Backward pass
@@ -392,17 +433,19 @@ class Trainer:
                 next_eval = ((self.global_step // self.config['training']['eval_interval']) + 1) * self.config['training']['eval_interval']
                 next_save = ((self.global_step // self.config['training']['save_interval']) + 1) * self.config['training']['save_interval']
                 
-                # Update progress bar with current step and next milestone
+                # Get current learning rate
+                lr = self.optimizer.param_groups[0]['lr']
+                
+                # Update progress bar with step info and actual loss
                 pbar.set_description(
-                    f"Epoch {self.epoch} | Step {self.global_step}/{self.config['training']['max_steps']} "
-                    f"(next eval: {next_eval})"
+                    f"Epoch {self.epoch} | Step {self.global_step}/{self.config['training']['max_steps']} | "
+                    f"Loss: {actual_loss:.4f} | LR: {lr:.2e}"
                 )
                 
                 # Logging
                 if self.global_step % self.config['training']['log_interval'] == 0:
-                    lr = self.optimizer.param_groups[0]['lr']
                     self._log_metrics({
-                        'train/loss': loss.item() * self.config['training']['gradient_accumulation_steps'],
+                        'train/loss': actual_loss,
                         'train/lr': lr,
                         'train/step': self.global_step
                     })
@@ -410,7 +453,7 @@ class Trainer:
                     # Also print to console
                     print(f"\n{'='*80}")
                     print(f"Step {self.global_step}/{self.config['training']['max_steps']} | "
-                          f"Loss: {loss.item() * self.config['training']['gradient_accumulation_steps']:.4f} | "
+                          f"Loss: {actual_loss:.4f} | "
                           f"LR: {lr:.2e}")
                     print(f"Next: Log@{next_log} | Eval@{next_eval} | Save@{next_save}")
                     print(f"{'='*80}")
@@ -450,13 +493,8 @@ class Trainer:
                     avg_loss = total_loss / num_batches if num_batches > 0 else 0
                     return avg_loss
             
-            total_loss += loss.item()
+            total_loss += actual_loss
             num_batches += 1
-            
-            pbar.set_postfix({
-                'loss': f"{loss.item():.4f}",
-                'step': f"{self.global_step}/{self.config['training']['max_steps']}"
-            })
         
         return total_loss / num_batches if num_batches > 0 else 0
     
@@ -474,8 +512,21 @@ class Trainer:
             input_ids = input_ids.to(self.device)
             targets = targets.to(self.device)
             
-            device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
-            with autocast(device_type=device_type, enabled=self.use_amp):
+            # Use version-compatible autocast
+            if self.use_amp:
+                device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+                try:
+                    # PyTorch 2.4+ API
+                    autocast_context = autocast(device_type=device_type, enabled=True)
+                except TypeError:
+                    # PyTorch 2.0-2.3 API (no device_type parameter)
+                    autocast_context = autocast(enabled=True)
+            else:
+                # No mixed precision - use dummy context
+                from contextlib import nullcontext
+                autocast_context = nullcontext()
+            
+            with autocast_context:
                 logits, loss = self.model(input_ids, targets)
             
             # Handle DataParallel: loss is a vector [num_gpus], need to reduce to scalar

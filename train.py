@@ -41,7 +41,19 @@ def main():
         '--resume',
         type=str,
         default=None,
-        help='Path to checkpoint to resume from'
+        help='Path to local checkpoint to resume from'
+    )
+    parser.add_argument(
+        '--resume-remote',
+        type=str,
+        default=None,
+        help='Checkpoint filename from HuggingFace Hub (e.g., "checkpoint.pt")'
+    )
+    parser.add_argument(
+        '--model-repo',
+        type=str,
+        default='0x-genesys/neo_weights_checkpoints',
+        help='HuggingFace model repository ID'
     )
     parser.add_argument(
         '--dataset',
@@ -88,6 +100,12 @@ def main():
     # Override config with command line arguments
     if args.resume:
         config['checkpoint']['resume_from'] = args.resume
+    elif args.resume_remote:
+        # Download checkpoint from HuggingFace Hub
+        from src.remote_model_loader import get_remote_checkpoint_path
+        print(f"\n📥 Resuming from remote checkpoint: {args.resume_remote}")
+        local_path = get_remote_checkpoint_path(args.resume_remote, args.model_repo)
+        config['checkpoint']['resume_from'] = local_path
     if args.dataset:
         # Support both dataset_name (HuggingFace) and train_file (binary)
         if args.dataset.endswith('.bin'):

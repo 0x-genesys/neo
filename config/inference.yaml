@@ -1,0 +1,73 @@
+# Inference Configuration
+# This config is OPTIONAL - the model checkpoint already contains the training config
+# Use this only if you want to override default inference settings
+
+# Device Configuration
+# The inference script auto-detects the best device (CUDA > MPS > CPU)
+# You can override by passing --device cuda/mps/cpu to the CLI
+device:
+  auto_detect: true  # Automatically select best available device
+  # Options: cuda, mps, cpu, auto
+
+# Generation Parameters
+# These are the default values used in interactive mode
+# You can override them via CLI arguments or in interactive mode with "set" command
+generation:
+  max_new_tokens: 100      # Maximum tokens to generate
+  temperature: 0.8         # Sampling temperature (0.1-2.0)
+                          # Lower = more deterministic, Higher = more creative
+  top_k: 50               # Keep only top k tokens for sampling
+                          # Lower = more focused, Higher = more diverse
+  top_p: 0.95             # Nucleus sampling threshold (0.0-1.0)
+                          # Lower = more focused, Higher = more diverse
+  num_return_sequences: 1  # Number of sequences to generate
+
+# Inference Optimization
+inference:
+  use_torch_compile: false  # Use torch.compile for faster inference (PyTorch 2.0+)
+                           # Note: First run will be slow due to compilation
+  use_kv_cache: true       # Use key-value caching for faster generation
+  batch_size: 1            # Batch size for batch inference
+
+# Memory Management
+memory:
+  max_memory_mb: null      # Maximum memory to use (null = no limit)
+  clear_cache: true        # Clear CUDA cache between generations
+
+# Recommended Settings by Use Case
+# 
+# Creative Writing (more diverse):
+#   temperature: 1.0
+#   top_k: 100
+#   top_p: 0.95
+#
+# Code Generation (more focused):
+#   temperature: 0.2
+#   top_k: 10
+#   top_p: 0.9
+#
+# Factual Q&A (most deterministic):
+#   temperature: 0.1
+#   top_k: 5
+#   top_p: 0.85
+#
+# Balanced (default):
+#   temperature: 0.8
+#   top_k: 50
+#   top_p: 0.95
+
+# Usage Examples:
+#
+# 1. Use checkpoint's config (recommended):
+#    python src/inference.py --model-remote best_model.pt --interactive
+#
+# 2. Override with this config:
+#    python src/inference.py --model-remote best_model.pt --config config/inference.yaml --interactive
+#
+# 3. Override specific parameters via CLI:
+#    python src/inference.py --model-remote best_model.pt --temperature 1.0 --top-k 100 --interactive
+#
+# 4. Change settings in interactive mode:
+#    Prompt: set temperature 1.0
+#    Prompt: set top_k 100
+#    Prompt: config  (to see current settings)
