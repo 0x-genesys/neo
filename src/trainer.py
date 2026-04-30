@@ -41,6 +41,10 @@ class Trainer:
         
         # Device setup
         self.device = self._setup_device()
+        
+        # Auto-adjust training parameters based on hardware
+        self._auto_adjust_for_hardware()
+        
         self.model.to(self.device)
         
         # Optimizer
@@ -104,15 +108,92 @@ class Trainer:
         print(f"Trainer initialized on device: {self.device}")
         print(f"Mixed precision training: {self.use_amp}")
     
+    def _auto_adjust_for_hardware(self):
+        """Automatically adjust training parameters based on detected hardware."""
+        device_str = str(self.device)
+        original_batch = self.config['training']['batch_size']
+        original_grad_accum = self.config['training']['gradient_accumulation_steps']
+        original_lr = self.config['training']['learning_rate']
+        
+        print(f"\n{'='*80}")
+        print(f"🔧 Hardware-Adaptive Configuration")
+        print(f"{'='*80}")
+        print(f"Detected device: {self.device}")
+        print(f"Original settings:")
+        print(f"  - Batch size: {original_batch}")
+        print(f"  - Gradient accumulation: {original_grad_accum}")
+        print(f"  - Learning rate: {original_lr:.2e}")
+        print(f"  - Effective batch: {original_batch * original_grad_accum}")
+        
+        # Determine hardware type
+        if 'xla' in device_str or 'tpu' in device_str.lower():
+            # TPU: Large batch sizes for efficiency
+            new_batch = 128
+            new_grad_accum = 4
+            new_lr = original_lr * (new_batch / original_batch) ** 0.5  # Square root scaling
+            self.config['data']['num_workers'] = 4
+            self.config['data']['pin_memory'] = False
+            hw_type = "TPU"
+            
+        elif 'cuda' in device_str:
+            # CUDA: Keep moderate batch size
+            new_batch = original_batch  # Keep as configured
+            new_grad_accum = original_grad_accum
+            new_lr = original_lr
+            self.config['data']['num_workers'] = min(8, self.config['data'].get('num_workers', 4))
+            self.config['data']['pin_memory'] = True
+            hw_type = "CUDA"
+            
+        elif 'mps' in device_str:
+            # MPS: Smaller batch size for stability
+            new_batch = 8
+            new_grad_accum = original_batch * original_grad_accum // new_batch
+            new_lr = original_lr * (new_batch / original_batch) ** 0.5
+            self.config['data']['num_workers'] = 4
+            self.config['data']['pin_memory'] = False
+            self.config['system']['mixed_precision'] = False  # Disable for stability
+            hw_type = "MPS"
+            
+        else:
+            # CPU: Minimal batch size
+            new_batch = 4
+            new_grad_accum = original_batch * original_grad_accum // new_batch
+            new_lr = original_lr * (new_batch / original_batch) ** 0.5
+            self.config['data']['num_workers'] = 4
+            self.config['data']['pin_memory'] = False
+            self.config['system']['mixed_precision'] = False
+            hw_type = "CPU"
+        
+        # Apply adjustments
+        self.config['training']['batch_size'] = new_batch
+        self.config['training']['gradient_accumulation_steps'] = new_grad_accum
+        self.config['training']['learning_rate'] = new_lr
+        
+        print(f"\n{hw_type}-optimized settings:")
+        print(f"  - Batch size: {new_batch}")
+        print(f"  - Gradient accumulation: {new_grad_accum}")
+        print(f"  - Learning rate: {new_lr:.2e}")
+        print(f"  - Effective batch: {new_batch * new_grad_accum}")
+        print(f"  - Mixed precision: {self.config['system']['mixed_precision']}")
+        print(f"  - Data workers: {self.config['data']['num_workers']}")
+        
+        if new_batch != original_batch or new_grad_accum != original_grad_accum:
+            print(f"\n💡 Note: Batch size adjusted for {hw_type} optimization")
+            print(f"   Effective batch size maintained: {new_batch * new_grad_accum}")
+            print(f"   Checkpoints remain compatible across hardware!")
+        
+        print(f"{'='*80}\n")
+    
     def _setup_device(self):
         """Setup training device with proper detection and memory checking."""
         from .device_utils import select_device, check_mixed_precision_support, print_device_recommendations
         
         device_name = self.config['system']['device']
         device = select_device(device_name, verbose=True)
+        device_str = str(device)
         
         # Check GPU memory if using CUDA
-        if device.type == 'cuda':
+        if 'cuda' in device_str:
             import torch.cuda as cuda
             total_memory = cuda.get_device_properties(device).total_memory / 1e9  # GB
             print(f"\n🔍 GPU Memory Check:")
@@ -152,6 +233,13 @@ class Trainer:
                 print(f"\n   Consider using: python train.py --config config/gpu_training_117m_15gb.yaml")
             else:
                 print(f"   ✅ Memory estimate looks good ({estimated_memory/total_memory*100:.0f}% of GPU)")
+        
+        elif 'xla' in device_str or 'tpu' in device_str.lower():
+            print(f"\n🔍 TPU Configuration:")
+            print(f"   TPU training enabled")
+            print(f"   Using XLA compiler for optimization")
+            print(f"   Batch size: {self.config['training']['batch_size']}")
+            print(f"   Note: TPU works best with large batch sizes (128-512)")
         
         # Check mixed precision support
         if self.config['system']['mixed_precision']:

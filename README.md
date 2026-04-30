@@ -44,7 +44,8 @@ python src/inference.py --model checkpoints/production/best_model.pt --prompt "O
 
 ### 🎯 Training
 - **Multi-GPU support** with DataParallel
-- **Mixed precision (FP16)** training
+- **TPU support** with torch_xla for Google Cloud TPU
+- **Mixed precision (FP16/bfloat16)** training
 - **Gradient checkpointing** for memory efficiency
 - **Automatic dataset download** from HuggingFace Hub
 - **Resume from remote checkpoints** on HuggingFace Hub
@@ -52,7 +53,7 @@ python src/inference.py --model checkpoints/production/best_model.pt --prompt "O
 - **Automatic checkpoint upload** to HuggingFace Hub
 
 ### 🔧 Robustness
-- **Multi-environment support**: CUDA, MPS (Apple Silicon), CPU
+- **Multi-environment support**: CUDA, MPS (Apple Silicon), TPU, CPU
 - **PyTorch version compatibility**: 2.0, 2.1, 2.2, 2.3, 2.4+
 - **Automatic memory optimization** for different GPU sizes
 - **Graceful error handling** and recovery
@@ -96,6 +97,18 @@ python train.py --config config/quick_start.yaml
 python train.py --config config/production_training.yaml
 ```
 
+### Auto-Adaptive Training (Recommended)
+```bash
+# Automatically adapts to available hardware (TPU/GPU/MPS/CPU)
+# Seamlessly resume across different hardware
+python train.py --config config/auto_training_117m_balanced.yaml
+
+# Resume on different hardware (e.g., GPU → TPU)
+python train.py --config config/auto_training_117m_balanced.yaml \
+    --resume checkpoints/auto_training_117m_balanced/checkpoint_step_7500.pt \
+    --tpu
+```
+
 ### GPU Training (Multi-GPU)
 ```bash
 # Optimized for 2x T4 GPUs
@@ -103,6 +116,18 @@ python train.py --config config/gpu_training_117m_balanced.yaml --multi-gpu
 
 # Low memory config (if OOM)
 python train.py --config config/gpu_training_117m_balanced_low_memory.yaml --multi-gpu
+```
+
+### TPU Training (Google Cloud)
+```bash
+# Install torch_xla
+pip install torch_xla
+
+# Train on TPU (8 cores)
+python train.py --config config/tpu_training_117m_balanced.yaml --tpu
+
+# Specify number of TPU cores
+python train.py --config config/tpu_training_117m_balanced.yaml --tpu --tpu-cores 8
 ```
 
 ### Resume Training
@@ -138,6 +163,8 @@ python train.py \
     --lr 3e-4 \                                 # Override learning rate
     --multi-gpu \                               # Use all GPUs
     --gpu-ids 0,1                               # Use specific GPUs
+    --tpu \                                     # Use TPU
+    --tpu-cores 8                               # Number of TPU cores
 ```
 
 ## 🔮 Inference
@@ -288,8 +315,10 @@ neo/
 |--------|------------|---------|------------|----------|
 | `quick_start.yaml` | 2.36M | WikiText-2 | 2GB | Testing |
 | `production_training.yaml` | 16M | WikiText-2 | 4GB | CPU training |
-| `gpu_training_117m_balanced.yaml` | 117M | 300M tokens | 14GB | Production |
+| `auto_training_117m_balanced.yaml` | 117M | 300M tokens | Auto | **Cross-hardware (Recommended)** |
+| `gpu_training_117m_balanced.yaml` | 117M | 300M tokens | 14GB | Production GPU |
 | `gpu_training_117m_balanced_low_memory.yaml` | 117M | 300M tokens | 8GB | Multi-GPU safe |
+| `tpu_training_117m_balanced.yaml` | 117M | 300M tokens | TPU | Google Cloud TPU |
 
 ## 🔧 Advanced Features
 

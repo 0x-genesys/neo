@@ -12,6 +12,10 @@ seaborn==0.13.2
 torch>=2.0.0
 torchvision>=0.15.0
 
+# TPU Support (optional - for Google Cloud TPU)
+# Uncomment to enable TPU training:
+torch_xla>=2.0.0
+
 # Transformers and NLP
 transformers>=4.30.0
 datasets>=2.14.0

@@ -8,9 +8,9 @@ Neo is a production-ready transformer language model implementation designed for
 
 ## System Design Principles
 
-1. **Robustness**: Multi-environment support (CUDA, MPS, CPU) with graceful degradation
+1. **Robustness**: Multi-environment support (CUDA, MPS, TPU, CPU) with graceful degradation
 2. **Compatibility**: PyTorch 2.0+ version compatibility with automatic API detection
-3. **Scalability**: Multi-GPU training with memory optimization
+3. **Scalability**: Multi-GPU and TPU training with memory optimization
 4. **Usability**: Automatic dataset download, remote model loading, comprehensive documentation
 5. **Production-Ready**: Error handling, checkpointing, monitoring, and deployment support
 
@@ -76,6 +76,12 @@ Full:         d_model=768, layers=12, heads=12  → 117M params
 - Automatic device selection and management
 - Memory-optimized gradient gathering
 - Balanced workload distribution
+
+**TPU Support**:
+- torch_xla integration for Google Cloud TPU
+- XLA compiler optimization
+- bfloat16 mixed precision
+- Large batch size optimization (128-512)
 
 **Checkpointing**:
 - Periodic checkpoint saving
@@ -234,8 +240,10 @@ Total (with checkpointing) 6.3 GB         -
 **Device Detection**:
 ```python
 # Automatic device selection
-if torch.cuda.is_available():
-    device = "cuda"
+if torch_xla_available:
+    device = xm.xla_device()  # TPU
+elif torch.cuda.is_available():
+    device = "cuda"  # NVIDIA GPU
 elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
     device = "mps"  # Apple Silicon
 else:
@@ -243,7 +251,7 @@ else:
 ```
 
 **Graceful Degradation**:
-- Falls back to CPU if GPU unavailable
+- Falls back to CPU if GPU/TPU unavailable
 - Disables mixed precision if not supported
 - Adjusts batch size based on available memory
 
@@ -335,7 +343,7 @@ data:                     # Data configuration
     auto_download: true
 
 system:                   # System configuration
-  device: "cuda"
+  device: "cuda"          # Device: cuda, mps, tpu, cpu, or auto
   mixed_precision: true
   compile_model: false
 

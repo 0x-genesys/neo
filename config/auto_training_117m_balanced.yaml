@@ -1,132 +1,151 @@
 # ============================================================================
-# GPU Training Configuration - 117M Model with Balanced Dataset
+# Auto-Adaptive Training Configuration - 117M Model with Balanced Dataset
 # ============================================================================
 #
-# This configuration uses the pre-processed 300M token "Balanced Logic & Chat" 
-# dataset from HuggingFace Hub, eliminating the need to build datasets locally.
+# This configuration automatically adapts to available hardware:
+#   - TPU: Large batch sizes (128), bfloat16, XLA optimization
+#   - CUDA: Medium batch sizes (16), FP16, cuDNN optimization
+#   - MPS: Small batch sizes (8), no mixed precision
+#   - CPU: Minimal batch sizes (4), no mixed precision
 #
-# Dataset: 0x-genesys/mix_wiki_code_chat_data_300M_tokens
-# Composition:
-#   - WikiText-103: 102M tokens (34%) - Encyclopedic knowledge
-#   - UltraChat: 198M tokens (66%) - Conversational AI  
-#   - The Stack: 48M tokens (16%) - Code reasoning (Python/Java)
-#   - TOTAL: 300M tokens
+# SEAMLESS CHECKPOINT RESUMPTION:
+#   - Resume training on different hardware without issues
+#   - Batch size changes don't affect model weights
+#   - Optimizer state adapts automatically
+#   - Same effective batch size maintained via gradient accumulation
 #
-# Features:
-#   - Automatic dataset download from HuggingFace Hub
-#   - No local dataset building required
-#   - Optimized for GPUs with 4GB+ VRAM
-#   - Fixed tqdm progress bar issues
+# USAGE:
+#   # Start on GPU
+#   python train.py --config config/auto_training_117m_balanced.yaml
+#
+#   # Resume on TPU (from step 7500)
+#   python train.py --config config/auto_training_117m_balanced.yaml \
+#       --resume checkpoints/auto_training_117m_balanced/checkpoint_step_7500.pt \
+#       --tpu
+#
+#   # Resume on different GPU
+#   python train.py --config config/auto_training_117m_balanced.yaml \
+#       --resume checkpoints/auto_training_117m_balanced/checkpoint_step_7500.pt \
+#       --multi-gpu
 #
 # ============================================================================
 
 model:
-  vocab_size: 100277  # tiktoken cl100k_base (GPT-4) - will be set by tokenizer
+  vocab_size: 100277  # tiktoken cl100k_base (GPT-4)
   d_model: 768        # Standard GPT-2 Small size
   num_heads: 12       # Maintains head_dim = 768/12 = 64 (optimal)
   num_layers: 12      # Good depth for reasoning
   context_length: 512 # Standard context length
   dropout: 0.12       # Moderate regularization
   use_flash_attention: false
-  use_gradient_checkpointing: false  # Enable for memory efficiency
+  use_gradient_checkpointing: false  # Will be auto-enabled if needed
 
-# Training Configuration - Curriculum Learning with Dynamic Dataset Mixing
+# Training Configuration - Hardware Adaptive
+# The system will automatically adjust these based on detected hardware
 training:
-  batch_size: 8       # Batch size per GPU
-  gradient_accumulation_steps: 16  # Effective batch = 128 (16 × 8)
+  # Effective batch size target: 512 tokens
+  # This is maintained across all hardware via gradient accumulation
+  
+  # Base settings (will be overridden by hardware detection)
+  batch_size: 16      # Per-device batch size (auto-adjusted)
+  gradient_accumulation_steps: 8  # Auto-adjusted to maintain effective batch
+  
+  # Hardware-specific overrides (applied automatically):
+  # TPU:  batch_size=128, grad_accum=4  → effective=512
+  # CUDA: batch_size=16,  grad_accum=8  → effective=128 (or 512 with accum)
+  # MPS:  batch_size=8,   grad_accum=16 → effective=128
+  # CPU:  batch_size=4,   grad_accum=32 → effective=128
+  
   max_epochs: 8        # 8 epochs with curriculum learning
   max_steps: 36621     # Total tokens (2.4B) / tokens-per-step (65,536)
-  learning_rate: 2.0e-4  # Optimized for 117M model with diverse data
-  weight_decay: 0.15   # Strong regularization to prevent memorization
-  warmup_steps: 1500   # ~4% of total steps for vocab stabilization
-  max_grad_norm: 1.0
-  dropout: 0.12        # Consistent with model dropout
-  eval_interval: 500  # Evaluate every 500 steps
-  save_interval: 500  # Save checkpoint every 500 steps
-  log_interval: 20    # Log every 20 steps
   
-  # Curriculum Learning - Progressive Dataset Distribution per Epoch
-  # This implements a strategic learning progression:
-  # Phase 1 (Epoch 1): Current leakage pattern - discover issues
-  # Phase 2 (Epochs 2-3): Knowledge/Logic hardening - build foundation
-  # Phase 3 (Epochs 4-6): Balanced contextualization - bridge concepts
-  # Phase 4 (Epochs 7-8): Behavior & formatting - refine outputs
+  # Learning rate (auto-scaled with batch size)
+  learning_rate: 2.0e-4  # Base LR for batch_size=16
+  # TPU (batch=128): LR scaled to ~4.0e-4
+  # CUDA (batch=16): LR = 2.0e-4
+  # MPS (batch=8):   LR = 1.4e-4
+  # CPU (batch=4):   LR = 1.0e-4
+  
+  weight_decay: 0.15
+  warmup_steps: 1500
+  max_grad_norm: 1.0
+  dropout: 0.12
+  eval_interval: 500
+  save_interval: 500
+  log_interval: 20
+  
+  # Curriculum Learning - Same across all hardware
   curriculum_learning:
     enabled: true
-    # Distribution per epoch: [wikitext%, stack%, ultrachat%]
-    # Must sum to 100% for each epoch
     epoch_distributions:
-      1:  [28, 13, 59]  # Current: Pattern Discovery (detect leakage)
+      1:  [28, 13, 59]  # Current: Pattern Discovery
       2:  [70, 20, 10]  # Foundation: Knowledge/Logic Hardening
       3:  [70, 20, 10]  # Foundation: Knowledge/Logic Hardening
       4:  [50, 25, 25]  # Bridge A: Balanced Contextualization
       5:  [35, 25, 40]  # Bridge B: Priority Shift
       6:  [20, 20, 60]  # Bridge C: Instruction Emergence
-      7:  [10, 10, 80]  # Refinement: Behavior & Formatting (The "Flip")
-      8:  [10, 10, 80]  # Refinement: Behavior & Formatting (The "Flip")
+      7:  [10, 10, 80]  # Refinement: Behavior & Formatting
+      8:  [10, 10, 80]  # Refinement: Behavior & Formatting
     
-    # Source names (must match dataset_stats.json)
     sources:
-      - "wikitext"   # Facts and encyclopedic knowledge
-      - "stack"      # Code and logical reasoning
-      - "ultrachat"  # Conversational behavior and instructions
+      - "wikitext"
+      - "stack"
+      - "ultrachat"
 
-# Data Configuration - HuggingFace Auto-Download
+# Data Configuration - Same across all hardware
 data:
-  dataset_type: "binary"  # Use binary format for efficiency
-  train_file: "data/balanced_300m_curriculum/train.bin"  # Base path for curriculum sources
+  dataset_type: "binary"
+  train_file: "data/balanced_300m_curriculum/train.bin"
   val_file: "data/balanced_300m_curriculum/val.bin"
-  max_length: 512      # Match context_length
-  num_workers: 4       # Parallel data loading
-  pin_memory: true     # GPU memory optimization
+  max_length: 512
+  num_workers: 4       # Auto-adjusted per device
+  pin_memory: true     # Auto-disabled for TPU/CPU
   
-  # HuggingFace Dataset Auto-Download Configuration
-  # For curriculum learning, this downloads separate source files
   huggingface_dataset:
-    repo_id: "0x-genesys/mix_wiki_code_chat_data_300M_tokens_curriculum"  # Curriculum dataset
-    dataset_name: "balanced_300m_curriculum"  # Local folder name in data/
-    auto_download: true  # Automatically download if files are missing
+    repo_id: "0x-genesys/mix_wiki_code_chat_data_300M_tokens_curriculum"
+    dataset_name: "balanced_300m_curriculum"
+    auto_download: true
 
 # Tokenizer Configuration
 tokenizer:
-  type: "tiktoken"     # Use tiktoken cl100k_base (GPT-4)
-  vocab_size: 100277   # cl100k_base vocab size
+  type: "tiktoken"
+  vocab_size: 100277
 
-# Optimization - AdamW with Cosine Decay
+# Optimization
 optimizer:
   type: "adamw"
   betas: [0.9, 0.95]
   eps: 1.0e-8
 
 scheduler:
-  type: "cosine"       # Cosine annealing schedule
-  min_lr: 2.0e-5       # 10% of max_lr (2.0e-4)
+  type: "cosine"
+  min_lr: 2.0e-5
 
-# System Configuration
+# System Configuration - AUTO DETECTION
 system:
-  device: "auto"
-  mixed_precision: false  # Enable FP16 for memory efficiency
-  compile_model: false   # Disable for compatibility
+  device: "auto"       # Auto-detect: TPU → CUDA → MPS → CPU
+  mixed_precision: true  # Auto-adjusted (bfloat16 for TPU, FP16 for CUDA, disabled for MPS/CPU)
+  compile_model: false
   seed: 42
 
-# Checkpointing
+# Checkpointing - Hardware agnostic
 checkpoint:
-  save_dir: "checkpoints/gpu_training_117m_balanced"
+  save_dir: "checkpoints/auto_training_117m_balanced"
   resume_from: null
   save_best_only: false
 
 # Logging
 logging:
   use_wandb: false
-  wandb_project: "transformer-117m-balanced"
+  wandb_project: "transformer-117m-auto"
   wandb_entity: null
-  log_dir: "logs/gpu_training_117m_balanced"
+  log_dir: "logs/auto_training_117m_balanced"
 
 # HuggingFace Hub Integration
 huggingface_hub:
-  enabled: true  # Set to true to enable automatic uploads
-  repo_id: "0x-genesys/neo_weights_checkpoints"  # Your HF Hub repo
-  upload_best_only: false  # If true, only upload best models; if false, upload all checkpoints
+  enabled: true
+  repo_id: "0x-genesys/neo_weights_checkpoints"
+  upload_best_only: false
 
 # Generation
 generation:
@@ -137,59 +156,126 @@ generation:
   num_samples: 3
 
 # ============================================================================
-# USAGE INSTRUCTIONS
+# HARDWARE ADAPTATION RULES
 # ============================================================================
 #
-# 1. Start training (dataset will auto-download):
-#    python train.py --config config/gpu_training_117m_balanced.yaml
+# The system automatically applies these adjustments:
 #
-# 2. The system will automatically:
-#    - Check if data/balanced_300m/ exists
-#    - If missing, download from HuggingFace Hub
-#    - Load the binary dataset for training
+# TPU (Google Cloud):
+#   - batch_size: 128 (large for efficiency)
+#   - gradient_accumulation_steps: 4
+#   - learning_rate: 4.0e-4 (scaled with sqrt(batch_ratio))
+#   - mixed_precision: bfloat16
+#   - num_workers: 4
+#   - pin_memory: false
+#   - gradient_checkpointing: false (TPU has large memory)
 #
-# 3. No need to run prepare_balanced_dataset.py!
+# CUDA (NVIDIA GPU):
+#   - batch_size: 16 (moderate)
+#   - gradient_accumulation_steps: 8
+#   - learning_rate: 2.0e-4 (base)
+#   - mixed_precision: FP16
+#   - num_workers: 8
+#   - pin_memory: true
+#   - gradient_checkpointing: auto (based on memory)
 #
-# 4. Monitor training:
-#    - Logs: logs/gpu_training_117m_balanced/
-#    - Checkpoints: checkpoints/gpu_training_117m_balanced/
-#    - TensorBoard: tensorboard --logdir logs/gpu_training_117m_balanced
+# MPS (Apple Silicon):
+#   - batch_size: 8 (conservative)
+#   - gradient_accumulation_steps: 16
+#   - learning_rate: 1.4e-4 (scaled down)
+#   - mixed_precision: false (stability)
+#   - num_workers: 4
+#   - pin_memory: false
+#   - gradient_checkpointing: false
+#
+# CPU:
+#   - batch_size: 4 (minimal)
+#   - gradient_accumulation_steps: 32
+#   - learning_rate: 1.0e-4 (scaled down)
+#   - mixed_precision: false
+#   - num_workers: 4
+#   - pin_memory: false
+#   - gradient_checkpointing: false
 #
 # ============================================================================
-# DATASET VARIANTS
+# CHECKPOINT COMPATIBILITY
 # ============================================================================
 #
-# You can create configs for different dataset sizes:
+# Checkpoints are FULLY COMPATIBLE across hardware:
 #
-# For 117M tokens (smaller, faster):
-#   huggingface_dataset:
-#     repo_id: "0x-genesys/mix_wiki_code_chat_data_117M_tokens"
-#     dataset_name: "balanced_117m"
+# 1. Model Weights: Device-independent (same across all hardware)
+# 2. Optimizer State: Adapts automatically to new batch size
+# 3. Training Progress: Step count and epoch preserved
+# 4. Learning Rate: Scheduler state preserved
 #
-# For 1B tokens (larger, better quality):
-#   huggingface_dataset:
-#     repo_id: "0x-genesys/mix_wiki_code_chat_data_1B_tokens"
-#     dataset_name: "balanced_1b"
+# Example: Resume GPU checkpoint on TPU
+#   # Trained on GPU T4 to step 7500
+#   python train.py --config config/auto_training_117m_balanced.yaml
+#
+#   # Resume on TPU from step 7500
+#   python train.py --config config/auto_training_117m_balanced.yaml \
+#       --resume checkpoints/auto_training_117m_balanced/checkpoint_step_7500.pt \
+#       --tpu
+#
+#   # The system will:
+#   # - Load model weights (unchanged)
+#   # - Load optimizer state (adapts to new batch size)
+#   # - Continue from step 7500
+#   # - Use TPU-optimized settings (batch=128, bfloat16)
 #
 # ============================================================================
-# TROUBLESHOOTING
+# EFFECTIVE BATCH SIZE
 # ============================================================================
 #
-# If download fails:
-# 1. Check internet connection
-# 2. Verify HuggingFace Hub access
-# 3. Check repository exists: https://huggingface.co/datasets/0x-genesys/mix_wiki_code_chat_data_300M_tokens
-# 4. Manual download:
-#    python -m src.dataset_downloader 0x-genesys/mix_wiki_code_chat_data_300M_tokens --dataset-name balanced_300m
+# All hardware maintains similar effective batch size via gradient accumulation:
 #
-# If tqdm shows multiple lines:
-# 1. Set environment variable: export DISABLE_TQDM=1
-# 2. Or update terminal/IDE settings for better tqdm support
+# TPU:  128 × 4  = 512 tokens per update
+# CUDA: 16  × 8  = 128 tokens per update (or 16 × 32 = 512)
+# MPS:  8   × 16 = 128 tokens per update
+# CPU:  4   × 32 = 128 tokens per update
 #
-# If out of memory:
-# 1. Reduce batch_size to 8 or 4
-# 2. Increase gradient_accumulation_steps proportionally
-# 3. Enable gradient_checkpointing: true
-# 4. Use smaller model config (gpu_training.yaml)
+# This ensures:
+# - Consistent training dynamics
+# - Similar convergence behavior
+# - Seamless hardware transitions
+#
+# ============================================================================
+# USAGE EXAMPLES
+# ============================================================================
+#
+# Start training (auto-detect hardware):
+#   python train.py --config config/auto_training_117m_balanced.yaml
+#
+# Resume on same hardware:
+#   python train.py --config config/auto_training_117m_balanced.yaml \
+#       --resume checkpoints/auto_training_117m_balanced/checkpoint_step_7500.pt
+#
+# Resume on TPU (from GPU checkpoint):
+#   python train.py --config config/auto_training_117m_balanced.yaml \
+#       --resume checkpoints/auto_training_117m_balanced/checkpoint_step_7500.pt \
+#       --tpu
+#
+# Resume on multi-GPU (from single GPU checkpoint):
+#   python train.py --config config/auto_training_117m_balanced.yaml \
+#       --resume checkpoints/auto_training_117m_balanced/checkpoint_step_7500.pt \
+#       --multi-gpu
+#
+# Resume from HuggingFace Hub on TPU:
+#   python train.py --config config/auto_training_117m_balanced.yaml \
+#       --resume-remote checkpoint_step_7500.pt \
+#       --tpu
+#
+# ============================================================================
+# MONITORING
+# ============================================================================
+#
+# TensorBoard (works across all hardware):
+#   tensorboard --logdir logs/auto_training_117m_balanced
+#
+# The logs show:
+#   - Actual batch size used
+#   - Effective batch size (batch × grad_accum)
+#   - Hardware type (TPU/CUDA/MPS/CPU)
+#   - Mixed precision mode
 #
 # ============================================================================

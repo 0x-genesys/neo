@@ -90,6 +90,17 @@ def main():
         default=None,
         help='Comma-separated GPU IDs to use (e.g., "0,1")'
     )
+    parser.add_argument(
+        '--tpu',
+        action='store_true',
+        help='Use TPU for training (requires torch_xla)'
+    )
+    parser.add_argument(
+        '--tpu-cores',
+        type=int,
+        default=8,
+        help='Number of TPU cores to use (default: 8)'
+    )
     
     args = parser.parse_args()
     
@@ -122,6 +133,30 @@ def main():
     
     # Set random seed
     set_seed(config['system']['seed'])
+    
+    # Handle TPU setup
+    use_tpu = args.tpu
+    if use_tpu:
+        try:
+            import torch_xla
+            import torch_xla.core.xla_model as xm
+            import torch_xla.distributed.parallel_loader as pl
+            import torch_xla.distributed.xla_multiprocessing as xmp
+            
+            print(f"\n✅ TPU training enabled!")
+            print(f"   torch_xla version: {torch_xla.__version__}")
+            print(f"   TPU cores: {args.tpu_cores}")
+            print(f"   Note: TPU training uses XLA compiler for optimization")
+            print()
+            
+            # Override device to TPU
+            config['system']['device'] = 'tpu'
+            
+        except ImportError:
+            print("⚠️  TPU requested but torch_xla not installed.")
+            print("   Install with: pip install torch_xla")
+            print("   Falling back to auto device selection.")
+            use_tpu = False
     
     # Handle multi-GPU setup
     use_multi_gpu = args.multi_gpu
