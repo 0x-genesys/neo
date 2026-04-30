@@ -16,19 +16,9 @@ fi
 echo "✅ Kaggle environment detected"
 echo ""
 
-# Check if TPU is enabled
-if [ ! -d "/dev/accel0" ] && [ ! -f "/sys/class/accel/accel0/device/chip" ]; then
-    echo "❌ TPU not detected!"
-    echo ""
-    echo "To enable TPU in Kaggle:"
-    echo "1. Go to notebook settings (gear icon)"
-    echo "2. Under 'Accelerator', select 'TPU v3-8'"
-    echo "3. Click 'Save'"
-    echo "4. Restart the notebook"
-    exit 1
-fi
-
-echo "✅ TPU hardware detected"
+# Note: We'll verify TPU after installing torch_xla
+# Kaggle TPU might not expose /dev/accel0 until torch_xla is loaded
+echo "📝 Note: TPU verification will happen after torch_xla installation"
 echo ""
 
 # Install torch_xla
@@ -56,14 +46,33 @@ fi
 echo ""
 
 # Verify installation
-echo "🔍 Verifying torch_xla installation..."
+echo "🔍 Verifying torch_xla installation and TPU availability..."
 python3 -c "
-import torch_xla
-import torch_xla.core.xla_model as xm
-print(f'✅ torch_xla version: {torch_xla.__version__}')
-print(f'✅ TPU device: {xm.xla_device()}')
-print(f'✅ TPU cores: {xm.xrt_world_size()}')
-print(f'✅ TPU ordinal: {xm.get_ordinal()}')
+import sys
+try:
+    import torch_xla
+    import torch_xla.core.xla_model as xm
+    print(f'✅ torch_xla version: {torch_xla.__version__}')
+    
+    try:
+        device = xm.xla_device()
+        print(f'✅ TPU device: {device}')
+        print(f'✅ TPU cores: {xm.xrt_world_size()}')
+        print(f'✅ TPU ordinal: {xm.get_ordinal()}')
+    except Exception as e:
+        print(f'❌ TPU not available: {e}')
+        print('')
+        print('To enable TPU in Kaggle:')
+        print('1. Go to notebook settings (gear icon)')
+        print('2. Under \"Accelerator\", select \"TPU v3-8\"')
+        print('3. Click \"Save\"')
+        print('4. Restart the notebook')
+        print('')
+        print('Note: Make sure you see \"TPU v3-8\" in the accelerator dropdown')
+        sys.exit(1)
+except ImportError as e:
+    print(f'❌ torch_xla import failed: {e}')
+    sys.exit(1)
 "
 
 if [ $? -eq 0 ]; then
@@ -80,7 +89,15 @@ if [ $? -eq 0 ]; then
     echo ""
 else
     echo ""
-    echo "❌ torch_xla verification failed"
-    echo "Please check the installation and try again"
+    echo "================================================================================"
+    echo "❌ TPU Setup Failed"
+    echo "================================================================================"
+    echo ""
+    echo "Possible reasons:"
+    echo "1. TPU not enabled in Kaggle notebook settings"
+    echo "2. Notebook needs to be restarted after enabling TPU"
+    echo "3. TPU quota exhausted (check Kaggle account limits)"
+    echo ""
+    echo "Please check the settings and try again."
     exit 1
 fi

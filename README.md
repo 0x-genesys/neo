@@ -44,7 +44,8 @@ python src/inference.py --model checkpoints/production/best_model.pt --prompt "O
 
 ### 🎯 Training
 - **Multi-GPU support** with DataParallel
-- **TPU support** with torch_xla for Google Cloud TPU
+- **TPU support** with dedicated TPU trainer (Kaggle TPU v3-8, Google Cloud TPU)
+- **Cross-hardware checkpoints** - Resume GPU training on TPU and vice versa
 - **Mixed precision (FP16/bfloat16)** training
 - **Gradient checkpointing** for memory efficiency
 - **Automatic dataset download** from HuggingFace Hub
@@ -118,7 +119,24 @@ python train.py --config config/gpu_training_117m_balanced.yaml --multi-gpu
 python train.py --config config/gpu_training_117m_balanced_low_memory.yaml --multi-gpu
 ```
 
-### TPU Training (Google Cloud)
+### TPU Training (Kaggle/Google Cloud)
+
+**Kaggle TPU v3-8** (Recommended - Free!):
+```bash
+# 1. Enable TPU in Kaggle notebook settings
+# 2. Install torch_xla
+!bash scripts/setup_kaggle_tpu.sh
+
+# 3. Train on TPU (8 cores, 3x faster than T4 GPU)
+!python train.py --config config/auto_training_117m_balanced.yaml --tpu
+
+# 4. Resume from GPU checkpoint on TPU
+!python train.py --config config/auto_training_117m_balanced.yaml \
+    --resume-remote best_model_step_7500.pt \
+    --tpu
+```
+
+**Google Cloud TPU**:
 ```bash
 # Install torch_xla
 pip install torch_xla
@@ -129,6 +147,14 @@ python train.py --config config/tpu_training_117m_balanced.yaml --tpu
 # Specify number of TPU cores
 python train.py --config config/tpu_training_117m_balanced.yaml --tpu --tpu-cores 8
 ```
+
+**Performance**:
+- **3.1x faster** than T4 GPU (2.5 steps/sec vs 0.8 steps/sec)
+- **128GB memory** vs 16GB on T4
+- **Batch size 128** vs 8 on T4
+- **Free on Kaggle** (30 hours/week)
+
+See [KAGGLE_TPU_SUPPORT.md](KAGGLE_TPU_SUPPORT.md) for complete guide.
 
 ### Resume Training
 
