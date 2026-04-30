@@ -519,6 +519,10 @@ class TPUTrainer:
                 
                 self.global_step += 1
                 
+                # Debug: Print step increment
+                if self.global_step <= 7505 or self.global_step % 10 == 0:
+                    print(f"🔄 Step incremented: {self.global_step} (batch {batch_idx + 1})")
+                
                 # Logging - always print, but only log to TB/W&B at intervals
                 avg_loss = epoch_loss / step_count if step_count > 0 else 0.0
                 lr = self.optimizer.param_groups[0]['lr']
@@ -550,6 +554,10 @@ class TPUTrainer:
                     
                     epoch_loss = 0.0
                     step_count = 0
+                
+                # Debug: Check save condition
+                if self.global_step <= 7505:
+                    print(f"🔍 Save check: step={self.global_step}, interval={save_interval}, mod={self.global_step % save_interval}")
                 
                 # Checkpointing FIRST (before validation to ensure we save progress)
                 if self.global_step % save_interval == 0:
