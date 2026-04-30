@@ -530,7 +530,9 @@ class TPUTrainer:
                     )
                     print(log_msg)
                     
-                    # Update tqdm if available
+                    # Update tqdm description and postfix with current step
+                    if hasattr(pbar, 'set_description'):
+                        pbar.set_description(f"Epoch {self.epoch} (step {self.global_step})")
                     if hasattr(pbar, 'set_postfix'):
                         pbar.set_postfix({
                             'loss': f'{avg_loss:.4f}',
@@ -553,6 +555,12 @@ class TPUTrainer:
                     print(f"\n{'='*80}")
                     print(f"🔍 VALIDATION at step {self.global_step}")
                     print(f"{'='*80}")
+                    
+                    # Clear XLA cache and sync before validation to free memory
+                    xm.mark_step()  # Ensure all pending ops are done
+                    import gc
+                    gc.collect()  # Python garbage collection
+                    
                     val_loss = self._validate(model)
                     
                     print(f"Validation loss: {val_loss:.4f}")
@@ -573,7 +581,7 @@ class TPUTrainer:
                     self._save_checkpoint(model, f"checkpoint_step_{self.global_step}.pt")
     
     def _validate(self, model):
-        """Validate on TPU."""
+        """Validate on TPU with memory-efficient batching."""
         model.eval()
         
         # Create parallel loader for validation
@@ -593,7 +601,7 @@ class TPUTrainer:
             val_iter = para_loader.per_device_loader(self.device)
         
         with torch.no_grad():
-            for batch in val_iter:
+            for batch_idx, batch in enumerate(val_iter):
                 # Move data to device
                 if isinstance(batch, dict):
                     batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
@@ -633,6 +641,10 @@ class TPUTrainer:
                 
                 total_loss += loss.item() * inputs.size(0)
                 total_samples += inputs.size(0)
+                
+                # Periodically sync to free XLA memory
+                if (batch_idx + 1) % 100 == 0:
+                    xm.mark_step()
         
         avg_loss = total_loss / total_samples
         
@@ -706,34 +718,18 @@ class TPUTrainer:
     
     def _upload_to_hub(self, checkpoint_path):
         """Upload checkpoint to HuggingFace Hub and clean up local file."""
-        try:
-            from huggingface_hub import HfApi
-            
-            repo_id = self.config['huggingface_hub']['repo_id']
-            api = HfApi()
-            
-            api.upload_file(
-                path_or_fileobj=str(checkpoint_path),
-                path_in_repo=checkpoint_path.name,
-                repo_id=repo_id,
-                repo_type="model"
-            )
-            
-            print(f"☁️  Uploaded to HuggingFace Hub: {repo_id}/{checkpoint_path.name}")
-            
-            # Clean up local checkpoint after successful upload to save disk space
-            # Keep only best_model checkpoints locally
-            if 'best_model' not in checkpoint_path.name:
-                try:
-                    checkpoint_path.unlink()
-                    print(f"🗑️  Deleted local checkpoint (saved to Hub): {checkpoint_path.name}")
-                except Exception as e:
-                    print(f"⚠️  Could not delete local checkpoint: {e}")
-            else:
-                print(f"💾 Keeping best model checkpoint locally: {checkpoint_path.name}")
-                
-        except Exception as e:
-            print(f"⚠️  Failed to upload to HuggingFace Hub: {e}")
+        from .checkpoint_utils import upload_checkpoint_to_hub
+        
+        is_best = 'best_model' in checkpoint_path.name
+        
+        upload_checkpoint_to_hub(
+            checkpoint_path=checkpoint_path,
+            config=self.config,
+            global_step=self.global_step,
+            epoch=self.epoch,
+            is_best=is_best,
+            delete_after_upload=True  # Delete after upload to save disk space on TPU/Kaggle
+        )
     
     def _create_optimizer(self, model):
         """Create optimizer."""

@@ -359,45 +359,16 @@ class Trainer:
     
     def _upload_to_hub(self, filepath, is_best=False):
         """Upload checkpoint to HuggingFace Hub bucket."""
-        # Check if HF Hub upload is enabled
-        hf_hub_config = self.config.get('huggingface_hub', {})
-        if not hf_hub_config.get('enabled', False):
-            return
+        from .checkpoint_utils import upload_checkpoint_to_hub
         
-        try:
-            from huggingface_hub import HfApi
-            
-            api = HfApi()
-            repo_id = hf_hub_config.get('repo_id')
-            
-            if not repo_id:
-                print("⚠️  HuggingFace Hub repo_id not configured, skipping upload")
-                return
-            
-            # Determine remote path
-            if is_best:
-                path_in_repo = f"best_model_step_{self.global_step}.pt"
-            else:
-                path_in_repo = filepath.name
-            
-            print(f"📤 Uploading to HuggingFace Hub: {repo_id}/{path_in_repo}")
-            
-            # Upload file
-            api.upload_file(
-                path_or_fileobj=str(filepath),
-                path_in_repo=path_in_repo,
-                repo_id=repo_id,
-                repo_type="model",
-                commit_message=f"Upload checkpoint at step {self.global_step} (epoch {self.epoch})"
-            )
-            
-            print(f"✅ Uploaded to HuggingFace Hub: https://huggingface.co/{repo_id}/tree/main")
-            
-        except ImportError:
-            print("⚠️  huggingface_hub not installed. Install with: pip install huggingface_hub")
-        except Exception as e:
-            print(f"⚠️  Failed to upload to HuggingFace Hub: {e}")
-            print(f"   Continuing training...")
+        upload_checkpoint_to_hub(
+            checkpoint_path=filepath,
+            config=self.config,
+            global_step=self.global_step,
+            epoch=self.epoch,
+            is_best=is_best,
+            delete_after_upload=False  # Keep local files for GPU training
+        )
     
     def load_checkpoint(self, filepath):
         """Load training checkpoint."""
