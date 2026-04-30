@@ -324,18 +324,30 @@ class TPUTrainer:
                 targets = targets.to(self.device)
             
             # Forward pass
-            outputs = model(inputs)
+            outputs = model(inputs, targets)
             
-            # Compute loss
-            if isinstance(outputs, dict):
+            # Handle model output - can be tuple (logits, loss) or dict
+            if isinstance(outputs, tuple):
+                logits, loss = outputs
+                # If model computed loss, use it; otherwise compute manually
+                if loss is None:
+                    loss = nn.functional.cross_entropy(
+                        logits.view(-1, logits.size(-1)),
+                        targets.view(-1)
+                    )
+            elif isinstance(outputs, dict):
                 logits = outputs['logits']
+                loss = nn.functional.cross_entropy(
+                    logits.view(-1, logits.size(-1)),
+                    targets.view(-1)
+                )
             else:
+                # outputs is just logits tensor
                 logits = outputs
-            
-            loss = nn.functional.cross_entropy(
-                logits.view(-1, logits.size(-1)),
-                targets.view(-1)
-            )
+                loss = nn.functional.cross_entropy(
+                    logits.view(-1, logits.size(-1)),
+                    targets.view(-1)
+                )
             
             # Scale loss for gradient accumulation
             loss = loss / grad_accum_steps
@@ -412,17 +424,30 @@ class TPUTrainer:
                     targets = targets.to(self.device)
                 
                 # Forward pass
-                outputs = model(inputs)
+                outputs = model(inputs, targets)
                 
-                if isinstance(outputs, dict):
+                # Handle model output - can be tuple (logits, loss) or dict
+                if isinstance(outputs, tuple):
+                    logits, loss = outputs
+                    # If model computed loss, use it; otherwise compute manually
+                    if loss is None:
+                        loss = nn.functional.cross_entropy(
+                            logits.view(-1, logits.size(-1)),
+                            targets.view(-1)
+                        )
+                elif isinstance(outputs, dict):
                     logits = outputs['logits']
+                    loss = nn.functional.cross_entropy(
+                        logits.view(-1, logits.size(-1)),
+                        targets.view(-1)
+                    )
                 else:
+                    # outputs is just logits tensor
                     logits = outputs
-                
-                loss = nn.functional.cross_entropy(
-                    logits.view(-1, logits.size(-1)),
-                    targets.view(-1)
-                )
+                    loss = nn.functional.cross_entropy(
+                        logits.view(-1, logits.size(-1)),
+                        targets.view(-1)
+                    )
                 
                 total_loss += loss.item() * inputs.size(0)
                 total_samples += inputs.size(0)
