@@ -8,13 +8,7 @@ Implements proper TPU training patterns for Kaggle, Colab, and GCP:
 - XLA-optimized gradient updates with mark_step()
 - Master-only operations for logging and checkpointing
 """
-import os
 
-# DO NOT set TPU_IP_ADDRESSES or worker lists.
-# ONLY set these to force PJRT to treat the VM as a standalone 8-core slice.
-os.environ['PJRT_DEVICE'] = 'TPU'
-os.environ['TPU_PROCESS_ADDRESSES'] = 'local'
-os.environ['TPU_NUM_DEVICES'] = '8'
 
 import torch
 import torch.nn as nn
