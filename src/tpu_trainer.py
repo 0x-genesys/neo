@@ -8,6 +8,7 @@ Implements proper TPU training patterns for Kaggle, Colab, and GCP:
 - XLA-optimized gradient updates with mark_step()
 - Master-only operations for logging and checkpointing
 """
+import os
 
 # DO NOT set TPU_IP_ADDRESSES or worker lists.
 # ONLY set these to force PJRT to treat the VM as a standalone 8-core slice.
