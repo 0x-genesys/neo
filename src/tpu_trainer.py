@@ -550,39 +550,54 @@ class TPUTrainer:
                     epoch_loss = 0.0
                     step_count = 0
                 
-                # Validation at eval_interval
+                # Checkpointing FIRST (before validation to ensure we save progress)
+                if self.global_step % save_interval == 0:
+                    self._save_checkpoint(model, f"checkpoint_step_{self.global_step}.pt")
+                
+                # Validation at eval_interval (with error handling)
                 if self.global_step % eval_interval == 0:
                     print(f"\n{'='*80}")
                     print(f"🔍 VALIDATION at step {self.global_step}")
                     print(f"{'='*80}")
                     
-                    # Clear XLA cache and sync before validation to free memory
-                    xm.mark_step()  # Ensure all pending ops are done
-                    import gc
-                    gc.collect()  # Python garbage collection
+                    try:
+                        # Clear XLA cache and sync before validation to free memory
+                        xm.mark_step()  # Ensure all pending ops are done
+                        import gc
+                        gc.collect()  # Python garbage collection
+                        
+                        val_loss = self._validate(model)
+                        
+                        print(f"Validation loss: {val_loss:.4f}")
+                        
+                        # Save best model
+                        if val_loss < self.best_val_loss:
+                            self.best_val_loss = val_loss
+                            print(f"✅ New best validation loss! Saving best model...")
+                            self._save_checkpoint(model, f"best_model_step_{self.global_step}.pt")
+                        else:
+                            print(f"Current best: {self.best_val_loss:.4f}")
+                        
+                        model.train()
+                        
+                    except RuntimeError as e:
+                        if "reserve" in str(e) or "memory" in str(e).lower():
+                            print(f"⚠️  Validation skipped due to memory constraints")
+                            print(f"   Error: {str(e)[:100]}...")
+                            print(f"   Training will continue without validation")
+                            model.train()  # Ensure model is back in training mode
+                        else:
+                            raise  # Re-raise if it's not a memory error
                     
-                    val_loss = self._validate(model)
-                    
-                    print(f"Validation loss: {val_loss:.4f}")
-                    
-                    # Save best model
-                    if val_loss < self.best_val_loss:
-                        self.best_val_loss = val_loss
-                        print(f"✅ New best validation loss! Saving best model...")
-                        self._save_checkpoint(model, f"best_model_step_{self.global_step}.pt")
-                    else:
-                        print(f"Current best: {self.best_val_loss:.4f}")
-                    
-                    model.train()
                     print(f"{'='*80}\n")
-                
-                # Checkpointing
-                if self.global_step % save_interval == 0:
-                    self._save_checkpoint(model, f"checkpoint_step_{self.global_step}.pt")
     
     def _validate(self, model):
         """Validate on TPU with memory-efficient batching."""
         model.eval()
+        
+        # Limit validation to first 200 batches to save memory
+        # This is enough for a good estimate of validation loss
+        max_val_batches = 200
         
         # Create parallel loader for validation
         para_loader = pl.ParallelLoader(self.val_loader, [self.device])
@@ -595,13 +610,16 @@ class TPUTrainer:
             from tqdm import tqdm
             val_iter = tqdm(para_loader.per_device_loader(self.device), 
                            desc="Validation", 
-                           total=len(self.val_loader),
+                           total=min(max_val_batches, len(self.val_loader)),
                            disable=False)
         except ImportError:
             val_iter = para_loader.per_device_loader(self.device)
         
         with torch.no_grad():
             for batch_idx, batch in enumerate(val_iter):
+                # Stop after max_val_batches to save memory
+                if batch_idx >= max_val_batches:
+                    break
                 # Move data to device
                 if isinstance(batch, dict):
                     batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
