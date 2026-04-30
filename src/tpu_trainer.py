@@ -416,10 +416,11 @@ class TPUTrainer:
         # Add tqdm progress bar
         try:
             from tqdm import tqdm
-            pbar = tqdm(enumerate(train_loader), total=len(self.train_loader), 
-                       desc=f"Epoch {self.epoch}", 
-                       disable=False,
-                       initial=batches_to_skip)
+            # Don't use initial parameter - we'll handle the display manually
+            pbar = tqdm(enumerate(train_loader), 
+                       total=len(self.train_loader), 
+                       desc=f"Epoch {self.epoch}",
+                       disable=False)
         except ImportError:
             # Fallback if tqdm not available
             pbar = enumerate(train_loader)
@@ -428,6 +429,10 @@ class TPUTrainer:
             # Skip batches if resuming mid-epoch
             if batch_idx < batches_to_skip:
                 continue
+            
+            # Update tqdm description to show we're past the skipped batches
+            if hasattr(pbar, 'set_description') and batch_idx == batches_to_skip:
+                pbar.set_description(f"Epoch {self.epoch} (resumed from batch {batches_to_skip})")
             # Move data to TPU device
             if isinstance(batch, dict):
                 batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
