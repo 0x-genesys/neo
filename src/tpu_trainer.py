@@ -89,6 +89,23 @@ class TPUTrainer:
         self.tokenizer = tokenizer
         self.config = config
         
+        # Ensure required config sections exist with defaults
+        if 'logging' not in config:
+            config['logging'] = {}
+        if 'checkpoint' not in config:
+            config['checkpoint'] = {}
+        if 'training' not in config:
+            config['training'] = {}
+        
+        # Set defaults for missing keys
+        config['logging'].setdefault('log_interval', 10)
+        config['logging'].setdefault('log_dir', 'logs')
+        config['logging'].setdefault('use_wandb', False)
+        config['checkpoint'].setdefault('save_interval', 1000)
+        config['checkpoint'].setdefault('save_dir', 'checkpoints')
+        config['training'].setdefault('gradient_accumulation_steps', 1)
+        config['training'].setdefault('max_grad_norm', 1.0)
+        
         # TPU configuration
         self.num_cores = 8  # Kaggle TPU v3-8 has 8 cores
         
@@ -333,7 +350,7 @@ class TPUTrainer:
             # Gradient accumulation
             if (batch_idx + 1) % grad_accum_steps == 0:
                 # Gradient clipping
-                max_grad_norm = self.config['training'].get('max_grad_norm', 1.0)
+                max_grad_norm = self.config['training']['max_grad_norm']
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
                 
                 # Optimizer step
