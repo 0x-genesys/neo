@@ -15,6 +15,25 @@ from .dataset_downloader import DatasetDownloader, configure_tqdm_for_datasets
 configure_tqdm_for_datasets()
 
 
+class TiktokenWrapper:
+    """Wrapper to make tiktoken compatible with HuggingFace tokenizer interface."""
+    
+    def __init__(self, encoding):
+        self.encoding = encoding
+        self.vocab_size = encoding.n_vocab
+        self.eos_token = "<|endoftext|>"
+        self.pad_token = "<|endoftext|>"
+    
+    def encode(self, text, **kwargs):
+        return self.encoding.encode(text, allowed_special='all')
+    
+    def decode(self, tokens, **kwargs):
+        return self.encoding.decode(tokens)
+    
+    def __len__(self):
+        return self.vocab_size
+
+
 class TextDataset(Dataset):
     """Dataset for language modeling."""
     
@@ -272,23 +291,7 @@ def load_data(config):
         actual_vocab_size = tokenizer.n_vocab
         print(f"✅ Tiktoken loaded: vocab_size={actual_vocab_size:,}")
         
-        # Create a wrapper to match HuggingFace interface
-        class TiktokenWrapper:
-            def __init__(self, encoding):
-                self.encoding = encoding
-                self.vocab_size = encoding.n_vocab
-                self.eos_token = "<|endoftext|>"
-                self.pad_token = "<|endoftext|>"
-            
-            def encode(self, text, **kwargs):
-                return self.encoding.encode(text, allowed_special='all')
-            
-            def decode(self, tokens, **kwargs):
-                return self.encoding.decode(tokens)
-            
-            def __len__(self):
-                return self.vocab_size
-        
+        # Wrap with module-level TiktokenWrapper class
         tokenizer = TiktokenWrapper(tokenizer)
     else:
         # Use HuggingFace tokenizer
