@@ -140,21 +140,23 @@ def main():
         try:
             import torch_xla
             import torch_xla.core.xla_model as xm
-            import torch_xla.distributed.parallel_loader as pl
-            import torch_xla.distributed.xla_multiprocessing as xmp
             
             print(f"\n✅ TPU training enabled!")
             print(f"   torch_xla version: {torch_xla.__version__}")
             print(f"   TPU cores: {args.tpu_cores}")
             print(f"   Note: TPU training uses XLA compiler for optimization")
+            print(f"   Note: Training will spawn across all {args.tpu_cores} cores")
             print()
             
             # Override device to TPU
             config['system']['device'] = 'tpu'
+            config['system']['tpu_cores'] = args.tpu_cores
             
         except ImportError:
             print("⚠️  TPU requested but torch_xla not installed.")
-            print("   Install with: pip install torch_xla")
+            print("   Install with:")
+            print("   curl https://raw.githubusercontent.com/pytorch/xla/master/contrib/scripts/env-setup.py -o pytorch-xla-env-setup.py")
+            print("   python pytorch-xla-env-setup.py --version nightly --apt-packages libomp5 libopenblas-dev")
             print("   Falling back to auto device selection.")
             use_tpu = False
     
@@ -242,8 +244,16 @@ def main():
         print(f"   Batch will be split across {len(gpu_ids)} GPUs")
         print()
     
-    # Create trainer
-    trainer = Trainer(model, train_loader, val_loader, tokenizer, config)
+    # Create trainer (TPU or standard)
+    if use_tpu:
+        from src.tpu_trainer import TPUTrainer
+        print("🚀 Using TPU Trainer with PyTorch XLA")
+        print("   Training will spawn across all TPU cores")
+        print("   Using xmp.spawn for multi-core training")
+        print()
+        trainer = TPUTrainer(model, train_loader, val_loader, tokenizer, config)
+    else:
+        trainer = Trainer(model, train_loader, val_loader, tokenizer, config)
     
     # Train
     try:

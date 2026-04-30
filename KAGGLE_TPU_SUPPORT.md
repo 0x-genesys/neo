@@ -18,28 +18,101 @@ Neo now supports **Kaggle TPU v3-8** training! Kaggle TPUs are different from Go
 
 ## Implementation
 
+### PyTorch XLA Patterns (Kaggle Best Practices)
+
+Our TPU trainer follows Kaggle's recommended PyTorch XLA patterns:
+
+1. **Startup Script**: Uses official env-setup.py for torch_xla installation
+   ```bash
+   curl https://raw.githubusercontent.com/pytorch/xla/master/contrib/scripts/env-setup.py -o pytorch-xla-env-setup.py
+   python pytorch-xla-env-setup.py --version nightly --apt-packages libomp5 libopenblas-dev
+   ```
+
+2. **Distributed Training**: Uses `xmp.spawn` for multi-core training
+   ```python
+   xmp.spawn(_mp_fn, nprocs=8, start_method='fork')
+   ```
+
+3. **Model Wrapper**: Uses `MpModelWrapper` for multi-core model
+   ```python
+   model = xmp.MpModelWrapper(model)
+   model = model.to(device)
+   ```
+
+4. **Device Handling**: Proper TPU device setup
+   ```python
+   device = xm.xla_device()
+   ```
+
+5. **Data Loading**: Uses `ParallelLoader` for efficient data loading
+   ```python
+   para_loader = pl.ParallelLoader(train_loader, [device])
+   for batch in para_loader.per_device_loader(device):
+       # Training code
+   ```
+
+6. **Gradient Updates**: Uses `xm.mark_step()` for XLA optimization
+   ```python
+   optimizer.step()
+   xm.mark_step()  # XLA optimization barrier
+   ```
+
+7. **Printing**: Uses `xm.master_print()` for master-only printing
+   ```python
+   xm.master_print(f"Step {step}: Loss {loss:.4f}")
+   ```
+
+8. **Gradient Sync**: Uses `xm.reduce_gradients()` for multi-core sync
+   ```python
+   xm.reduce_gradients(optimizer)
+   ```
+
+9. **Results Aggregation**: Uses `xm.mesh_reduce()` for cross-core reduction
+   ```python
+   total_loss = xm.mesh_reduce('val_loss', total_loss, lambda x: sum(x))
+   ```
+
+10. **Checkpointing**: Uses `xser.save()` for memory-optimized saves
+    ```python
+    import torch_xla.utils.serialization as xser
+    xser.save(checkpoint, path, master_only=True)
+    ```
+
 ### Files Modified
 
-1. **`src/device_utils.py`**:
+1. **`src/tpu_trainer.py`** (NEW):
+   - Complete TPU trainer implementation
+   - Follows all Kaggle PyTorch XLA patterns
+   - Multi-core training with xmp.spawn
+   - Efficient data loading with ParallelLoader
+   - Memory-optimized checkpointing
+
+2. **`train.py`** (UPDATED):
+   - Added TPU trainer selection
+   - Proper torch_xla installation instructions
+   - TPU-specific configuration
+
+3. **`src/device_utils.py`** (UPDATED):
    - Added TPU environment detection (Kaggle/Colab/GCP)
    - Added `tpu_type` field to device info
    - Environment-specific recommendations
    - Kaggle/Colab specific setup instructions
 
-2. **`scripts/setup_kaggle_tpu.sh`** (NEW):
-   - Automated Kaggle TPU setup script
+4. **`scripts/setup_kaggle_tpu.sh`** (UPDATED):
+   - Uses official PyTorch XLA setup script
+   - Automated Kaggle TPU setup
    - Detects Kaggle environment
-   - Installs torch_xla
    - Verifies TPU availability
 
-3. **`KAGGLE_SETUP.md`** (UPDATED):
+5. **`KAGGLE_SETUP.md`** (UPDATED):
    - Added TPU setup instructions
    - Kaggle-specific troubleshooting
    - Performance comparisons
    - TPU vs GPU recommendations
 
-4. **`KAGGLE_TPU_SUPPORT.md`** (NEW - This file):
+6. **`KAGGLE_TPU_SUPPORT.md`** (This file):
    - Complete Kaggle TPU guide
+   - PyTorch XLA patterns
    - Implementation details
    - Usage examples
 
@@ -54,14 +127,21 @@ Neo now supports **Kaggle TPU v3-8** training! Kaggle TPUs are different from Go
 
 ### Step 2: Install torch_xla
 
+**Using Official Setup Script** (Recommended):
 ```bash
 # In a Kaggle notebook cell
-!pip install torch_xla
+!curl https://raw.githubusercontent.com/pytorch/xla/master/contrib/scripts/env-setup.py -o pytorch-xla-env-setup.py
+!python pytorch-xla-env-setup.py --version nightly --apt-packages libomp5 libopenblas-dev
 ```
 
-Or use the setup script:
+**Or use our setup script**:
 ```bash
 !bash scripts/setup_kaggle_tpu.sh
+```
+
+**Or simple pip install**:
+```bash
+!pip install torch_xla
 ```
 
 ### Step 3: Verify TPU

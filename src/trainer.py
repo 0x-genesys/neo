@@ -126,16 +126,7 @@ class Trainer:
         print(f"  - Effective batch: {original_batch * original_grad_accum}")
         
         # Determine hardware type
-        if 'xla' in device_str or 'tpu' in device_str.lower():
-            # TPU: Large batch sizes for efficiency
-            new_batch = 128
-            new_grad_accum = 4
-            new_lr = original_lr * (new_batch / original_batch) ** 0.5  # Square root scaling
-            self.config['data']['num_workers'] = 4
-            self.config['data']['pin_memory'] = False
-            hw_type = "TPU"
-            
-        elif 'cuda' in device_str:
+        if 'cuda' in device_str:
             # CUDA: Keep moderate batch size
             new_batch = original_batch  # Keep as configured
             new_grad_accum = original_grad_accum
@@ -233,13 +224,6 @@ class Trainer:
                 print(f"\n   Consider using: python train.py --config config/gpu_training_117m_15gb.yaml")
             else:
                 print(f"   ✅ Memory estimate looks good ({estimated_memory/total_memory*100:.0f}% of GPU)")
-        
-        elif 'xla' in device_str or 'tpu' in device_str.lower():
-            print(f"\n🔍 TPU Configuration:")
-            print(f"   TPU training enabled")
-            print(f"   Using XLA compiler for optimization")
-            print(f"   Batch size: {self.config['training']['batch_size']}")
-            print(f"   Note: TPU works best with large batch sizes (128-512)")
         
         # Check mixed precision support
         if self.config['system']['mixed_precision']:

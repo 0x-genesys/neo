@@ -32,11 +32,15 @@ echo "✅ TPU hardware detected"
 echo ""
 
 # Install torch_xla
-echo "📦 Installing torch_xla..."
+echo "📦 Installing torch_xla using official setup script..."
+echo "   This may take a few minutes..."
 echo ""
 
-# Kaggle uses specific PyTorch version, install matching torch_xla
-pip install torch_xla -q
+# Download and run the official PyTorch XLA setup script (as per Kaggle docs)
+curl -s https://raw.githubusercontent.com/pytorch/xla/master/contrib/scripts/env-setup.py -o /tmp/pytorch-xla-env-setup.py
+
+# Run setup script with nightly version and required packages
+python3 /tmp/pytorch-xla-env-setup.py --version nightly --apt-packages libomp5 libopenblas-dev
 
 if [ $? -eq 0 ]; then
     echo "✅ torch_xla installed successfully"
@@ -44,7 +48,8 @@ else
     echo "❌ Failed to install torch_xla"
     echo ""
     echo "Try manual installation:"
-    echo "  pip install torch_xla"
+    echo "  curl https://raw.githubusercontent.com/pytorch/xla/master/contrib/scripts/env-setup.py -o pytorch-xla-env-setup.py"
+    echo "  python pytorch-xla-env-setup.py --version nightly --apt-packages libomp5 libopenblas-dev"
     exit 1
 fi
 
@@ -52,7 +57,14 @@ echo ""
 
 # Verify installation
 echo "🔍 Verifying torch_xla installation..."
-python3 -c "import torch_xla; import torch_xla.core.xla_model as xm; print(f'✅ torch_xla version: {torch_xla.__version__}'); print(f'✅ TPU device: {xm.xla_device()}')"
+python3 -c "
+import torch_xla
+import torch_xla.core.xla_model as xm
+print(f'✅ torch_xla version: {torch_xla.__version__}')
+print(f'✅ TPU device: {xm.xla_device()}')
+print(f'✅ TPU cores: {xm.xrt_world_size()}')
+print(f'✅ TPU ordinal: {xm.get_ordinal()}')
+"
 
 if [ $? -eq 0 ]; then
     echo ""
