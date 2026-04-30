@@ -360,18 +360,29 @@ class TPUTrainer:
             
             if 'epoch' in checkpoint:
                 self.epoch = checkpoint['epoch']
-                print(f"   ✅ Resuming from epoch: {self.epoch}")
+                print(f"   ✅ Resuming from epoch: {self.epoch} (from checkpoint)")
             else:
                 # Calculate epoch from global_step if not in checkpoint
-                # Estimate: steps_per_epoch = len(train_loader) / grad_accum_steps
-                if self.global_step > 0 and hasattr(self.train_loader, 'dataset'):
-                    batch_size = self.config['training'].get('batch_size', 16)
-                    grad_accum = self.config['training'].get('gradient_accumulation_steps', 1)
-                    dataset_size = len(self.train_loader.dataset)
-                    steps_per_epoch = (dataset_size // batch_size) // grad_accum
-                    if steps_per_epoch > 0:
-                        self.epoch = self.global_step // steps_per_epoch
+                if self.global_step > 0:
+                    # Use max_steps from config for accurate calculation
+                    max_steps = self.config['training'].get('max_steps')
+                    max_epochs = self.config['training'].get('max_epochs', 8)
+                    
+                    if max_steps:
+                        steps_per_epoch = max_steps / max_epochs
+                        self.epoch = int(self.global_step / steps_per_epoch)
                         print(f"   ✅ Calculated epoch from step: {self.epoch}")
+                        print(f"      (step {self.global_step} / {steps_per_epoch:.0f} steps per epoch)")
+                    elif hasattr(self.train_loader, 'dataset'):
+                        # Fallback to dataset size calculation
+                        batch_size = self.config['training'].get('batch_size', 16)
+                        grad_accum = self.config['training'].get('gradient_accumulation_steps', 1)
+                        dataset_size = len(self.train_loader.dataset)
+                        steps_per_epoch = (dataset_size // batch_size) // grad_accum
+                        if steps_per_epoch > 0:
+                            self.epoch = self.global_step // steps_per_epoch
+                            print(f"   ✅ Calculated epoch from step: {self.epoch}")
+                            print(f"      (step {self.global_step} / {steps_per_epoch} steps per epoch)")
             
             if 'best_val_loss' in checkpoint:
                 self.best_val_loss = checkpoint['best_val_loss']
