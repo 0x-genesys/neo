@@ -146,10 +146,11 @@ class TPUTrainer:
     
     def train(self):
         """Start multi-core TPU training."""
-        xm.master_print("\n🚀 Starting TPU training on 8 cores...")
+        xm.master_print("\n🚀 Starting TPU training on all available TPU cores...")
         
         # Spawn training on all TPU cores
-        xmp.spawn(self._mp_fn, nprocs=self.num_cores, start_method='fork')
+        # torch_xla 2.9+ requires nprocs=None to use all available devices
+        xmp.spawn(self._mp_fn, nprocs=None, start_method='fork')
         
         xm.master_print("\n✅ TPU training complete!")
     
@@ -454,6 +455,28 @@ class TPUTrainer:
             })
         
         return avg_loss
+    
+    def save_checkpoint(self, filename='checkpoint.pt'):
+        """
+        Public method to save checkpoint (for error handling in train.py).
+        Delegates to internal _save_checkpoint method.
+        """
+        if xm.is_master_ordinal():
+            # Create a minimal checkpoint if training hasn't started yet
+            checkpoint_path = Path(self.config['checkpoint']['save_dir']) / filename
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            checkpoint = {
+                'model_state_dict': self.model.state_dict(),
+                'global_step': self.global_step,
+                'epoch': self.epoch,
+                'best_val_loss': self.best_val_loss,
+                'config': self.config
+            }
+            
+            # Save using standard PyTorch (xser might not be available yet)
+            torch.save(checkpoint, str(checkpoint_path))
+            xm.master_print(f"💾 Emergency checkpoint saved: {checkpoint_path}")
     
     def _log_metrics(self, metrics):
         """Log metrics to TensorBoard and W&B (master only)."""

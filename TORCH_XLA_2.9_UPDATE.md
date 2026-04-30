@@ -17,7 +17,19 @@ RuntimeError: Expected one of cpu, cuda, ipu, xpu, mkldnn, opengl, opencl, ideep
 
 **Fix**: Skip device optimization for TPU (TPU trainer handles it)
 
-### 2. Deprecated API Warnings
+### 2. xmp.spawn() API Change
+
+**Error**:
+```
+ValueError: Unsupported nprocs (8). Please use nprocs=1 or None (default). 
+If None, spawn will use all available devices.
+```
+
+**Cause**: torch_xla 2.9 changed `xmp.spawn()` API - no longer accepts explicit `nprocs=8`
+
+**Fix**: Use `nprocs=None` to spawn on all available devices
+
+### 3. Deprecated API Warnings
 
 **Warning**:
 ```
@@ -30,6 +42,17 @@ module 'torch_xla.core.xla_model' has no attribute 'xrt_world_size'
 - `xm.get_ordinal()` → `xr.global_ordinal()`
 
 **Fix**: Added compatibility layer that works with both old and new APIs
+
+### 4. Missing save_checkpoint() Method
+
+**Error**:
+```
+AttributeError: 'TPUTrainer' object has no attribute 'save_checkpoint'
+```
+
+**Cause**: TPU trainer only had private `_save_checkpoint()` method
+
+**Fix**: Added public `save_checkpoint()` method for error handling
 
 ## Changes Made
 
@@ -52,6 +75,31 @@ if not use_tpu:
 ```
 
 ### 2. Updated src/tpu_trainer.py
+
+**Changed xmp.spawn() call**:
+```python
+# Before (torch_xla < 2.9)
+xmp.spawn(_mp_fn, nprocs=8, start_method='fork')
+
+# After (torch_xla 2.9+)
+xmp.spawn(_mp_fn, nprocs=None, start_method='fork')
+# nprocs=None automatically uses all available TPU cores
+```
+
+**Added public save_checkpoint() method**:
+```python
+def save_checkpoint(self, filename='checkpoint.pt'):
+    """Public method for error handling in train.py."""
+    if xm.is_master_ordinal():
+        checkpoint = {
+            'model_state_dict': self.model.state_dict(),
+            'global_step': self.global_step,
+            'epoch': self.epoch,
+            'best_val_loss': self.best_val_loss,
+            'config': self.config
+        }
+        torch.save(checkpoint, checkpoint_path)
+```
 
 **Added compatibility functions**:
 ```python
