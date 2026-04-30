@@ -139,7 +139,6 @@ def main():
     if use_tpu:
         try:
             import torch_xla
-            import torch_xla.core.xla_model as xm
             
             print(f"\n✅ TPU training enabled!")
             print(f"   torch_xla version: {torch_xla.__version__}")
