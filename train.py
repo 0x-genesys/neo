@@ -220,20 +220,22 @@ def main():
     print("\nCreating model...")
     model = create_model(config)
     
-    # Optimize for device
-    from src.device_utils import optimize_for_device, select_device
-    
-    # Select device first
-    if config['system']['device'] == 'auto':
-        device = select_device('auto', verbose=True)
-    else:
-        device = torch.device(config['system']['device'])
-    
-    model = optimize_for_device(
-        model, 
-        device=device,
-        compile_model=config['system']['compile_model']
-    )
+    # For TPU training, skip device optimization (TPU trainer handles it)
+    if not use_tpu:
+        # Optimize for device
+        from src.device_utils import optimize_for_device, select_device
+        
+        # Select device first
+        if config['system']['device'] == 'auto':
+            device = select_device('auto', verbose=True)
+        else:
+            device = torch.device(config['system']['device'])
+        
+        model = optimize_for_device(
+            model, 
+            device=device,
+            compile_model=config['system']['compile_model']
+        )
     
     # Wrap model with DataParallel if using multiple GPUs
     if use_multi_gpu:

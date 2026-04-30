@@ -19,12 +19,48 @@ try:
     import torch_xla.core.xla_model as xm
     import torch_xla.distributed.parallel_loader as pl
     import torch_xla.distributed.xla_multiprocessing as xmp
+    import torch_xla.runtime as xr
     TPU_AVAILABLE = True
 except ImportError:
     TPU_AVAILABLE = False
     xm = None
     pl = None
     xmp = None
+    xr = None
+
+
+def get_world_size():
+    """Get TPU world size (number of cores) - compatible with old and new API."""
+    if not TPU_AVAILABLE:
+        return 1
+    try:
+        # Try new API first (torch_xla 2.0+)
+        if hasattr(xr, 'world_size'):
+            return xr.world_size()
+        # Fall back to old API
+        elif hasattr(xm, 'xrt_world_size'):
+            return xm.xrt_world_size()
+        else:
+            return 8  # Default for TPU v3-8
+    except:
+        return 8
+
+
+def get_ordinal():
+    """Get TPU ordinal (rank) - compatible with old and new API."""
+    if not TPU_AVAILABLE:
+        return 0
+    try:
+        # Try new API first (torch_xla 2.0+)
+        if hasattr(xr, 'global_ordinal'):
+            return xr.global_ordinal()
+        # Fall back to old API
+        elif hasattr(xm, 'get_ordinal'):
+            return xm.get_ordinal()
+        else:
+            return 0
+    except:
+        return 0
 
 
 class TPUTrainer:
@@ -210,8 +246,8 @@ class TPUTrainer:
         # Create distributed sampler for this core
         train_sampler = torch.utils.data.distributed.DistributedSampler(
             self.train_loader.dataset,
-            num_replicas=xm.xrt_world_size(),
-            rank=xm.get_ordinal(),
+            num_replicas=get_world_size(),
+            rank=get_ordinal(),
             shuffle=True
         )
         
@@ -355,8 +391,8 @@ class TPUTrainer:
         
         val_sampler = torch.utils.data.distributed.DistributedSampler(
             self.val_loader.dataset,
-            num_replicas=xm.xrt_world_size(),
-            rank=xm.get_ordinal(),
+            num_replicas=get_world_size(),
+            rank=get_ordinal(),
             shuffle=False
         )
         
@@ -524,8 +560,8 @@ def get_tpu_info():
         info = {
             'available': True,
             'version': torch_xla.__version__,
-            'num_cores': xm.xrt_world_size(),
-            'ordinal': xm.get_ordinal(),
+            'num_cores': get_world_size(),
+            'ordinal': get_ordinal(),
             'device': str(xm.xla_device())
         }
         return info

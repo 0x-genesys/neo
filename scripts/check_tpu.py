@@ -55,21 +55,35 @@ def check_tpu():
     
     try:
         import torch_xla.core.xla_model as xm
+        import torch_xla.runtime as xr
         
         # Try to get TPU device
         try:
+            # Use new API (torch_xla 2.0+)
             device = xm.xla_device()
             print(f"✅ TPU available")
             print(f"   Device: {device}")
             
-            # Get TPU info
+            # Get TPU info using new API
             try:
-                world_size = xm.xrt_world_size()
-                ordinal = xm.get_ordinal()
-                print(f"   Cores: {world_size}")
-                print(f"   Current ordinal: {ordinal}")
+                # Try new API first
+                if hasattr(xr, 'world_size'):
+                    world_size = xr.world_size()
+                    ordinal = xr.global_ordinal()
+                    print(f"   Cores: {world_size}")
+                    print(f"   Current ordinal: {ordinal}")
+                # Fall back to old API
+                elif hasattr(xm, 'xrt_world_size'):
+                    world_size = xm.xrt_world_size()
+                    ordinal = xm.get_ordinal()
+                    print(f"   Cores: {world_size}")
+                    print(f"   Current ordinal: {ordinal}")
+                else:
+                    print(f"   ⚠️  Could not determine core count (API changed)")
+                    print(f"   This is OK - TPU is still available")
             except Exception as e:
                 print(f"   ⚠️  Could not get TPU info: {e}")
+                print(f"   This is OK - TPU is still available")
             
             return True
             
