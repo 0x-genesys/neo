@@ -144,6 +144,7 @@ class TPUTrainer:
         
         # Spawn training on all TPU cores
         # torch_xla 2.9+ requires nprocs=None to use all available devices
+        # Use 'spawn' method (not 'fork') for proper TPU initialization
         # Pass only picklable data, not self
         xmp.spawn(
             self._mp_fn_wrapper, 
@@ -159,7 +160,7 @@ class TPUTrainer:
                 self.best_val_loss
             ),
             nprocs=None, 
-            start_method='fork'
+            start_method='spawn'  # Use 'spawn' for TPU, not 'fork'
         )
         
         print("\n✅ TPU training complete!")
