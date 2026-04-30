@@ -114,45 +114,46 @@ class TPUTrainer:
             # TensorBoard writer (will be used by master process only)
             from torch.utils.tensorboard import SummaryWriter
             self.writer = SummaryWriter(log_dir, flush_secs=300)
-            xm.master_print(f"TensorBoard logging to: {log_dir}")
+            print(f"TensorBoard logging to: {log_dir}")
         
         # Weights & Biases
         self.use_wandb = config['logging']['use_wandb']
+        self.wandb = None
+        self.wandb_config = None
         if self.use_wandb:
             try:
                 import wandb
-                # Only initialize on master process
-                if xm.is_master_ordinal(local=False):
-                    wandb.init(
-                        project=config['logging']['wandb_project'],
-                        entity=config['logging']['wandb_entity'],
-                        config=config
-                    )
-                    self.wandb = wandb
-                    xm.master_print("Weights & Biases logging enabled")
+                # Store wandb module and config for later initialization in mp_fn
+                self.wandb = wandb
+                self.wandb_config = {
+                    'project': config['logging']['wandb_project'],
+                    'entity': config['logging']['wandb_entity'],
+                    'config': config
+                }
+                print("Weights & Biases will be initialized in master process")
             except ImportError:
-                xm.master_print("wandb not installed, disabling W&B logging")
+                print("wandb not installed, disabling W&B logging")
                 self.use_wandb = False
         
-        xm.master_print("="*80)
-        xm.master_print("🚀 TPU Trainer Initialized")
-        xm.master_print("="*80)
-        xm.master_print(f"TPU cores: {self.num_cores}")
-        xm.master_print(f"torch_xla version: {torch_xla.__version__}")
-        xm.master_print("="*80)
+        print("="*80)
+        print("🚀 TPU Trainer Initialized")
+        print("="*80)
+        print(f"TPU cores: {self.num_cores}")
+        print(f"torch_xla version: {torch_xla.__version__}")
+        print("="*80)
         
         # Load checkpoint if resuming
         self._load_checkpoint_if_needed()
     
     def train(self):
         """Start multi-core TPU training."""
-        xm.master_print("\n🚀 Starting TPU training on all available TPU cores...")
+        print("\n🚀 Starting TPU training on all available TPU cores...")
         
         # Spawn training on all TPU cores
         # torch_xla 2.9+ requires nprocs=None to use all available devices
         xmp.spawn(self._mp_fn, nprocs=None, start_method='fork')
         
-        xm.master_print("\n✅ TPU training complete!")
+        print("\n✅ TPU training complete!")
     
     def _load_checkpoint_if_needed(self):
         """Load checkpoint if resume_from is specified in config."""
@@ -163,11 +164,11 @@ class TPUTrainer:
         
         resume_path = Path(resume_path)
         if not resume_path.exists():
-            xm.master_print(f"⚠️  Checkpoint not found: {resume_path}")
-            xm.master_print("   Starting training from scratch")
+            print(f"⚠️  Checkpoint not found: {resume_path}")
+            print("   Starting training from scratch")
             return
         
-        xm.master_print(f"\n📥 Loading checkpoint from: {resume_path}")
+        print(f"\n📥 Loading checkpoint from: {resume_path}")
         
         try:
             # Load checkpoint on CPU first (before TPU spawn)
@@ -185,27 +186,27 @@ class TPUTrainer:
                     state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
                 
                 self.model.load_state_dict(state_dict)
-                xm.master_print("   ✅ Model weights loaded")
+                print("   ✅ Model weights loaded")
             
             # Extract training state (will be applied in mp_fn)
             if 'global_step' in checkpoint:
                 self.global_step = checkpoint['global_step']
-                xm.master_print(f"   ✅ Resuming from step: {self.global_step}")
+                print(f"   ✅ Resuming from step: {self.global_step}")
             
             if 'epoch' in checkpoint:
                 self.epoch = checkpoint['epoch']
-                xm.master_print(f"   ✅ Resuming from epoch: {self.epoch}")
+                print(f"   ✅ Resuming from epoch: {self.epoch}")
             
             if 'best_val_loss' in checkpoint:
                 self.best_val_loss = checkpoint['best_val_loss']
-                xm.master_print(f"   ✅ Best validation loss: {self.best_val_loss:.4f}")
+                print(f"   ✅ Best validation loss: {self.best_val_loss:.4f}")
             
-            xm.master_print(f"✅ Checkpoint loaded successfully!")
-            xm.master_print(f"   Continuing training from step {self.global_step}")
+            print(f"✅ Checkpoint loaded successfully!")
+            print(f"   Continuing training from step {self.global_step}")
             
         except Exception as e:
-            xm.master_print(f"❌ Error loading checkpoint: {e}")
-            xm.master_print("   Starting training from scratch")
+            print(f"❌ Error loading checkpoint: {e}")
+            print("   Starting training from scratch")
             import traceback
             traceback.print_exc()
             self.resume_checkpoint = None
@@ -219,6 +220,15 @@ class TPUTrainer:
         """
         # Get TPU device for this core
         self.device = xm.xla_device()
+        
+        # Initialize W&B on master process only
+        if self.use_wandb and xm.is_master_ordinal() and self.wandb_config:
+            try:
+                self.wandb.init(**self.wandb_config)
+                xm.master_print("✅ Weights & Biases initialized")
+            except Exception as e:
+                xm.master_print(f"⚠️  Failed to initialize W&B: {e}")
+                self.use_wandb = False
         
         # Wrap model for multi-core training
         model = xmp.MpModelWrapper(self.model)
@@ -461,22 +471,21 @@ class TPUTrainer:
         Public method to save checkpoint (for error handling in train.py).
         Delegates to internal _save_checkpoint method.
         """
-        if xm.is_master_ordinal():
-            # Create a minimal checkpoint if training hasn't started yet
-            checkpoint_path = Path(self.config['checkpoint']['save_dir']) / filename
-            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            checkpoint = {
-                'model_state_dict': self.model.state_dict(),
-                'global_step': self.global_step,
-                'epoch': self.epoch,
-                'best_val_loss': self.best_val_loss,
-                'config': self.config
-            }
-            
-            # Save using standard PyTorch (xser might not be available yet)
-            torch.save(checkpoint, str(checkpoint_path))
-            xm.master_print(f"💾 Emergency checkpoint saved: {checkpoint_path}")
+        # Create a minimal checkpoint if training hasn't started yet
+        checkpoint_path = Path(self.config['checkpoint']['save_dir']) / filename
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        checkpoint = {
+            'model_state_dict': self.model.state_dict(),
+            'global_step': self.global_step,
+            'epoch': self.epoch,
+            'best_val_loss': self.best_val_loss,
+            'config': self.config
+        }
+        
+        # Save using standard PyTorch (xser might not be available yet)
+        torch.save(checkpoint, str(checkpoint_path))
+        print(f"💾 Emergency checkpoint saved: {checkpoint_path}")
     
     def _log_metrics(self, metrics):
         """Log metrics to TensorBoard and W&B (master only)."""

@@ -161,13 +161,14 @@ else:
 
 ## API Compatibility Matrix
 
-| Function | Old API (< 2.0) | New API (2.0+) | Our Code |
-|----------|-----------------|----------------|----------|
-| **World Size** | `xm.xrt_world_size()` | `xr.world_size()` | `get_world_size()` |
-| **Ordinal** | `xm.get_ordinal()` | `xr.global_ordinal()` | `get_ordinal()` |
-| **Device** | `xm.xla_device()` | `xm.xla_device()` | `xm.xla_device()` (unchanged) |
-| **Mark Step** | `xm.mark_step()` | `xm.mark_step()` | `xm.mark_step()` (unchanged) |
-| **Reduce Gradients** | `xm.reduce_gradients()` | `xm.reduce_gradients()` | `xm.reduce_gradients()` (unchanged) |
+| Function | Old API (< 2.0) | New API (2.0+) | torch_xla 2.9+ | Our Code |
+|----------|-----------------|----------------|----------------|----------|
+| **Spawn** | `xmp.spawn(fn, nprocs=8)` | `xmp.spawn(fn, nprocs=8)` | `xmp.spawn(fn, nprocs=None)` | `xmp.spawn(fn, nprocs=None)` |
+| **World Size** | `xm.xrt_world_size()` | `xr.world_size()` | `xr.world_size()` | `get_world_size()` |
+| **Ordinal** | `xm.get_ordinal()` | `xr.global_ordinal()` | `xr.global_ordinal()` | `get_ordinal()` |
+| **Device** | `xm.xla_device()` | `xm.xla_device()` | `xm.xla_device()` | `xm.xla_device()` |
+| **Mark Step** | `xm.mark_step()` | `xm.mark_step()` | `xm.mark_step()` | `xm.mark_step()` |
+| **Reduce Gradients** | `xm.reduce_gradients()` | `xm.reduce_gradients()` | `xm.reduce_gradients()` | `xm.reduce_gradients()` |
 
 ## Testing
 
@@ -213,13 +214,15 @@ The code now works with:
 ## Files Modified
 
 1. ✅ `train.py` - Skip device optimization for TPU
-2. ✅ `src/tpu_trainer.py` - Added compatibility functions
+2. ✅ `src/tpu_trainer.py` - Updated xmp.spawn(), added compatibility functions, added save_checkpoint()
 3. ✅ `scripts/check_tpu.py` - Updated API detection
 
 ## Summary
 
 ✅ **train.py error fixed** - No longer tries to create `torch.device('tpu')`  
+✅ **xmp.spawn() updated** - Now uses `nprocs=None` for torch_xla 2.9+  
 ✅ **Deprecated API fixed** - Compatible with torch_xla 2.9+  
+✅ **save_checkpoint() added** - Public method for error handling  
 ✅ **Backward compatible** - Works with old and new torch_xla versions  
 ✅ **No warnings** - Clean execution  
 
