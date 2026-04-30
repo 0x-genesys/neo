@@ -1,36 +1,15 @@
 """
 TPU-specific training wrapper for PyTorch XLA.
 
-Implements proper TPU training patterns for Kaggle, Colab, and GCP:
-- Multi-core training with xmp.spawn
+Implements proper TPU training patterns for Kaggle single-VM TPU:
+- Single-process training (no xmp.spawn for single VM)
 - Proper device handling with xm.xla_device()
 - Efficient data loading with ParallelLoader
 - XLA-optimized gradient updates with mark_step()
-- Master-only operations for logging and checkpointing
+- Memory-optimized checkpointing
 """
 
 import os
-import sys
-
-# 1. Force the internal XLA runtime to see this as a single-host 8-core machine
-
-# Reset all TPU discovery logic
-os.environ['TPU_PROCESS_ADDRESSES'] = 'local'
-# Tell XLA that we are NOT in a distributed setup
-os.environ['TPU_NUM_DEVICES'] = '1' # Set to 1 to stop it from looking for 8
-
-# This defines the physical 2x2x2 mesh of a v3-8
-os.environ['TPU_CHIPS_PER_HOST_BOUNDS'] = '2,2,2' 
-os.environ['TPU_HOST_BOUNDS'] = '1,1,1'
-
-# Force PJRT to ignore the network metadata
-os.environ['PJRT_DEVICE'] = 'TPU'
-os.environ['XLA_USE_BF16'] = '1'
-
-# 2. Disable the metric server which is causing the port errors in your logs
-os.environ['XLA_METRIC_SERVER_PORT'] = '0'
-
-
 import torch
 import torch.nn as nn
 from pathlib import Path
@@ -40,14 +19,12 @@ try:
     import torch_xla
     import torch_xla.core.xla_model as xm
     import torch_xla.distributed.parallel_loader as pl
-    import torch_xla.distributed.xla_multiprocessing as xmp
     import torch_xla.runtime as xr
     TPU_AVAILABLE = True
 except ImportError:
     TPU_AVAILABLE = False
     xm = None
     pl = None
-    xmp = None
     xr = None
 
 
@@ -87,16 +64,14 @@ def get_ordinal():
 
 class TPUTrainer:
     """
-    TPU-optimized trainer using PyTorch XLA patterns.
+    TPU-optimized trainer using PyTorch XLA patterns for single-VM TPU.
     
-    Follows Kaggle TPU best practices:
-    1. Use xmp.spawn for multi-core training
-    2. Instantiate model outside mp_fn and use MpModelWrapper
+    Follows Kaggle TPU best practices for single VM (8 cores):
+    1. Single-process training (no xmp.spawn)
+    2. Use ParallelLoader to distribute data across cores
     3. Send model and data to TPU device
-    4. Use ParallelLoader for efficient data loading
-    5. Use xm.master_print for logging
-    6. Use xm.mark_step() for gradient updates
-    7. Use xser.save for memory-optimized checkpointing
+    4. Use xm.mark_step() for gradient updates
+    5. Use xser.save for memory-optimized checkpointing
     """
     
     def __init__(self, model, train_loader, val_loader, tokenizer, config):
@@ -117,7 +92,7 @@ class TPUTrainer:
         # TPU configuration
         self.num_cores = 8  # Kaggle TPU v3-8 has 8 cores
         
-        # Training state (will be set in mp_fn)
+        # Training state
         self.device = None
         self.optimizer = None
         self.scheduler = None
@@ -128,7 +103,7 @@ class TPUTrainer:
         # Checkpoint to resume from (if any)
         self.resume_checkpoint = None
         
-        # Logging - will be initialized in each spawned process
+        # Logging
         self.writer = None
         
         # Weights & Biases
@@ -138,20 +113,19 @@ class TPUTrainer:
         if self.use_wandb:
             try:
                 import wandb
-                # Store wandb module and config for later initialization in mp_fn
                 self.wandb = wandb
                 self.wandb_config = {
                     'project': config['logging']['wandb_project'],
                     'entity': config['logging']['wandb_entity'],
                     'config': config
                 }
-                print("Weights & Biases will be initialized in master process")
+                print("Weights & Biases will be initialized during training")
             except ImportError:
                 print("wandb not installed, disabling W&B logging")
                 self.use_wandb = False
         
         print("="*80)
-        print("🚀 TPU Trainer Initialized")
+        print("🚀 TPU Trainer Initialized (Single-Process Mode)")
         print("="*80)
         print(f"TPU cores: {self.num_cores}")
         print(f"torch_xla version: {torch_xla.__version__}")
@@ -161,45 +135,97 @@ class TPUTrainer:
         self._load_checkpoint_if_needed()
     
     def train(self):
-        """Start multi-core TPU training with PJRT runtime."""
-        print("\n🚀 Starting TPU training on all available TPU cores...")
+        """Start single-process TPU training with ParallelLoader."""
+        print("\n🚀 Starting TPU training (single-process, multi-core)...")
         
-        # PJRT-compatible spawn: no nprocs, auto-discover cores
-        # Use 'fork' as standard for Kaggle TPU VM slices
-        xmp.spawn(self._mp_fn, args=(), nprocs=None, start_method='fork')
+        # Single-process training - no xmp.spawn needed for single VM
+        # ParallelLoader will handle data distribution across 8 cores
+        self._train_single_process()
         
         print("\n✅ TPU training complete!")
     
-    def _mp_fn(self, rank):
+    def _train_single_process(self):
         """
-        Multi-processing function that runs on each TPU core.
-        PJRT-compatible: receives rank, accesses self directly.
-        
-        Args:
-            rank: Core rank (0-7 for TPU v3-8)
+        Single-process training function for single-VM TPU.
+        Uses ParallelLoader to distribute data across 8 cores automatically.
+        No xmp.spawn needed - XLA handles multi-core parallelism internally.
         """
-        # Get TPU device for this core
+        # Get TPU device
         self.device = xm.xla_device()
         
-        # Initialize TensorBoard writer in this process (master only)
-        if self.config['logging']['log_dir'] and xm.is_master_ordinal():
+        print(f"📍 Using TPU device: {self.device}")
+        print(f"📍 World size (cores): {get_world_size()}")
+        print(f"📍 Ordinal (rank): {get_ordinal()}")
+        
+        # Initialize TensorBoard writer
+        if self.config['logging']['log_dir']:
             log_dir = Path(self.config['logging']['log_dir'])
             log_dir.mkdir(parents=True, exist_ok=True)
             from torch.utils.tensorboard import SummaryWriter
             self.writer = SummaryWriter(log_dir, flush_secs=300)
         
-        # Initialize W&B on master process only
-        if self.use_wandb and xm.is_master_ordinal() and self.wandb_config:
+        # Initialize W&B
+        if self.use_wandb and self.wandb_config:
             try:
                 self.wandb.init(**self.wandb_config)
-                xm.master_print("✅ Weights & Biases initialized")
+                print("✅ Weights & Biases initialized")
             except Exception as e:
-                xm.master_print(f"⚠️  Failed to initialize W&B: {e}")
+                print(f"⚠️  Failed to initialize W&B: {e}")
                 self.use_wandb = False
         
-        # Wrap model for multi-core training
-        model = xmp.MpModelWrapper(self.model)
-        model = model.to(self.device)
+        # Move model to TPU device (no MpModelWrapper needed for single-process)
+        model = self.model.to(self.device)
+        
+        # Create optimizer and scheduler
+        self.optimizer = self._create_optimizer(model)
+        self.scheduler = self._create_scheduler()
+        
+        # Load optimizer and scheduler state from checkpoint if resuming
+        if self.resume_checkpoint is not None:
+            if 'optimizer_state_dict' in self.resume_checkpoint:
+                try:
+                    self.optimizer.load_state_dict(self.resume_checkpoint['optimizer_state_dict'])
+                    print("   ✅ Optimizer state loaded")
+                except Exception as e:
+                    print(f"   ⚠️  Could not load optimizer state: {e}")
+            
+            if 'scheduler_state_dict' in self.resume_checkpoint and self.scheduler is not None:
+                try:
+                    self.scheduler.load_state_dict(self.resume_checkpoint['scheduler_state_dict'])
+                    print("   ✅ Scheduler state loaded")
+                except Exception as e:
+                    print(f"   ⚠️  Could not load scheduler state: {e}")
+        
+        # Training loop
+        max_epochs = self.config['training'].get('max_epochs', 10)
+        max_steps = self.config['training'].get('max_steps', None)
+        
+        # Start from the epoch we left off at (if resuming)
+        start_epoch = self.epoch
+        
+        for epoch in range(start_epoch, max_epochs):
+            self.epoch = epoch
+            
+            # Create parallel loader for efficient TPU data loading
+            # This automatically distributes data across all 8 TPU cores
+            para_loader = pl.ParallelLoader(self.train_loader, [self.device])
+            
+            # Train for one epoch
+            self._train_epoch(model, para_loader.per_device_loader(self.device))
+            
+            # Validate
+            if self.val_loader is not None:
+                val_loss = self._validate(model)
+                
+                # Save best model
+                if val_loss < self.best_val_loss:
+                    self.best_val_loss = val_loss
+                    self._save_checkpoint(model, f"best_model_step_{self.global_step}.pt")
+            
+            # Check if we've reached max steps
+            if max_steps and self.global_step >= max_steps:
+                print(f"\n✅ Reached max steps: {max_steps}")
+                break
     
     def _load_checkpoint_if_needed(self):
         """Load checkpoint if resume_from is specified in config."""
@@ -217,13 +243,13 @@ class TPUTrainer:
         print(f"\n📥 Loading checkpoint from: {resume_path}")
         
         try:
-            # Load checkpoint on CPU first (before TPU spawn)
+            # Load checkpoint on CPU first
             checkpoint = torch.load(resume_path, map_location='cpu')
             
-            # Store checkpoint data for later use in mp_fn
+            # Store checkpoint data for later use
             self.resume_checkpoint = checkpoint
             
-            # Load model state (on CPU, will be moved to TPU in mp_fn)
+            # Load model state
             if 'model_state_dict' in checkpoint:
                 # Handle DataParallel wrapper if present
                 state_dict = checkpoint['model_state_dict']
@@ -234,7 +260,7 @@ class TPUTrainer:
                 self.model.load_state_dict(state_dict)
                 print("   ✅ Model weights loaded")
             
-            # Extract training state (will be applied in mp_fn)
+            # Extract training state
             if 'global_step' in checkpoint:
                 self.global_step = checkpoint['global_step']
                 print(f"   ✅ Resuming from step: {self.global_step}")
@@ -256,108 +282,6 @@ class TPUTrainer:
             import traceback
             traceback.print_exc()
             self.resume_checkpoint = None
-    
-    def _mp_fn(self, rank):
-        """
-        Multi-processing function that runs on each TPU core.
-        PJRT-compatible: receives rank, accesses self directly.
-        
-        Args:
-            rank: Core rank (0-7 for TPU v3-8)
-        """
-        # Get TPU device for this core
-        self.device = xm.xla_device()
-        
-        # Initialize TensorBoard writer in this process (master only)
-        if self.config['logging']['log_dir'] and xm.is_master_ordinal():
-            log_dir = Path(self.config['logging']['log_dir'])
-            log_dir.mkdir(parents=True, exist_ok=True)
-            from torch.utils.tensorboard import SummaryWriter
-            self.writer = SummaryWriter(log_dir, flush_secs=300)
-        
-        # Initialize W&B on master process only
-        if self.use_wandb and xm.is_master_ordinal() and self.wandb_config:
-            try:
-                self.wandb.init(**self.wandb_config)
-                xm.master_print("✅ Weights & Biases initialized")
-            except Exception as e:
-                xm.master_print(f"⚠️  Failed to initialize W&B: {e}")
-                self.use_wandb = False
-        
-        # Wrap model for multi-core training
-        model = xmp.MpModelWrapper(self.model)
-        model = model.to(self.device)
-        
-        # Create optimizer and scheduler
-        self.optimizer = self._create_optimizer(model)
-        self.scheduler = self._create_scheduler()
-        
-        # Load optimizer and scheduler state from checkpoint if resuming
-        if self.resume_checkpoint is not None:
-            if 'optimizer_state_dict' in self.resume_checkpoint:
-                try:
-                    self.optimizer.load_state_dict(self.resume_checkpoint['optimizer_state_dict'])
-                    xm.master_print("   ✅ Optimizer state loaded")
-                except Exception as e:
-                    xm.master_print(f"   ⚠️  Could not load optimizer state: {e}")
-            
-            if 'scheduler_state_dict' in self.resume_checkpoint and self.scheduler is not None:
-                try:
-                    self.scheduler.load_state_dict(self.resume_checkpoint['scheduler_state_dict'])
-                    xm.master_print("   ✅ Scheduler state loaded")
-                except Exception as e:
-                    xm.master_print(f"   ⚠️  Could not load scheduler state: {e}")
-        
-        # Create distributed sampler for this core
-        train_sampler = torch.utils.data.distributed.DistributedSampler(
-            self.train_loader.dataset,
-            num_replicas=get_world_size(),
-            rank=get_ordinal(),
-            shuffle=True
-        )
-        
-        # Create data loader with distributed sampler
-        train_loader = torch.utils.data.DataLoader(
-            self.train_loader.dataset,
-            batch_size=self.config['training']['batch_size'],
-            sampler=train_sampler,
-            num_workers=self.config['data'].get('num_workers', 4),
-            drop_last=True
-        )
-        
-        # Training loop
-        max_epochs = self.config['training'].get('max_epochs', 10)
-        max_steps = self.config['training'].get('max_steps', None)
-        
-        # Start from the epoch we left off at (if resuming)
-        start_epoch = self.epoch
-        
-        for epoch in range(start_epoch, max_epochs):
-            self.epoch = epoch
-            
-            # Set epoch for sampler (ensures different shuffle each epoch)
-            train_sampler.set_epoch(epoch)
-            
-            # Create parallel loader for efficient TPU data loading
-            para_loader = pl.ParallelLoader(train_loader, [self.device])
-            
-            # Train for one epoch
-            self._train_epoch(model, para_loader.per_device_loader(self.device))
-            
-            # Validate
-            if self.val_loader is not None:
-                val_loss = self._validate(model)
-                
-                # Save best model (master only)
-                if xm.is_master_ordinal():
-                    if val_loss < self.best_val_loss:
-                        self.best_val_loss = val_loss
-                        self._save_checkpoint(model, f"best_model_step_{self.global_step}.pt")
-            
-            # Check if we've reached max steps
-            if max_steps and self.global_step >= max_steps:
-                xm.master_print(f"\n✅ Reached max steps: {max_steps}")
-                break
     
     def _train_epoch(self, model, train_loader):
         """Train for one epoch on TPU."""
@@ -410,12 +334,11 @@ class TPUTrainer:
             if (batch_idx + 1) % grad_accum_steps == 0:
                 # Gradient clipping
                 max_grad_norm = self.config['training'].get('max_grad_norm', 1.0)
-                xm.reduce_gradients(self.optimizer)  # Sync gradients across cores
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
                 
                 # Optimizer step
                 self.optimizer.step()
-                xm.mark_step()  # XLA optimization barrier
+                xm.mark_step()  # XLA optimization barrier - critical for TPU
                 self.optimizer.zero_grad()
                 
                 # Update learning rate
@@ -424,52 +347,36 @@ class TPUTrainer:
                 
                 self.global_step += 1
                 
-                # Logging (master only)
+                # Logging
                 if self.global_step % log_interval == 0:
                     avg_loss = epoch_loss / step_count
                     lr = self.optimizer.param_groups[0]['lr']
                     
-                    xm.master_print(
+                    print(
                         f"Epoch {self.epoch} | Step {self.global_step} | "
                         f"Loss: {avg_loss:.4f} | LR: {lr:.2e}"
                     )
                     
-                    # Log to TensorBoard and W&B (master only)
-                    if xm.is_master_ordinal():
-                        self._log_metrics({
-                            'train/loss': avg_loss,
-                            'train/learning_rate': lr,
-                            'train/epoch': self.epoch
-                        })
+                    # Log to TensorBoard and W&B
+                    self._log_metrics({
+                        'train/loss': avg_loss,
+                        'train/learning_rate': lr,
+                        'train/epoch': self.epoch
+                    })
                     
                     epoch_loss = 0.0
                     step_count = 0
                 
-                # Checkpointing (master only)
+                # Checkpointing
                 if self.global_step % save_interval == 0:
-                    if xm.is_master_ordinal():
-                        self._save_checkpoint(model, f"checkpoint_step_{self.global_step}.pt")
+                    self._save_checkpoint(model, f"checkpoint_step_{self.global_step}.pt")
     
     def _validate(self, model):
         """Validate on TPU."""
         model.eval()
         
-        val_sampler = torch.utils.data.distributed.DistributedSampler(
-            self.val_loader.dataset,
-            num_replicas=get_world_size(),
-            rank=get_ordinal(),
-            shuffle=False
-        )
-        
-        val_loader = torch.utils.data.DataLoader(
-            self.val_loader.dataset,
-            batch_size=self.config['training']['batch_size'],
-            sampler=val_sampler,
-            num_workers=self.config['data'].get('num_workers', 4),
-            drop_last=False
-        )
-        
-        para_loader = pl.ParallelLoader(val_loader, [self.device])
+        # Create parallel loader for validation
+        para_loader = pl.ParallelLoader(self.val_loader, [self.device])
         
         total_loss = 0.0
         total_samples = 0
@@ -503,20 +410,15 @@ class TPUTrainer:
                 total_loss += loss.item() * inputs.size(0)
                 total_samples += inputs.size(0)
         
-        # Reduce across all cores
-        total_loss = xm.mesh_reduce('val_loss', total_loss, lambda x: sum(x))
-        total_samples = xm.mesh_reduce('val_samples', total_samples, lambda x: sum(x))
-        
         avg_loss = total_loss / total_samples
         
-        xm.master_print(f"\n📊 Validation Loss: {avg_loss:.4f}\n")
+        print(f"\n📊 Validation Loss: {avg_loss:.4f}\n")
         
-        # Log to TensorBoard and W&B (master only)
-        if xm.is_master_ordinal():
-            self._log_metrics({
-                'val/loss': avg_loss,
-                'val/epoch': self.epoch
-            })
+        # Log to TensorBoard and W&B
+        self._log_metrics({
+            'val/loss': avg_loss,
+            'val/epoch': self.epoch
+        })
         
         return avg_loss
     
@@ -537,15 +439,12 @@ class TPUTrainer:
             'config': self.config
         }
         
-        # Save using standard PyTorch (xser might not be available yet)
+        # Save using standard PyTorch
         torch.save(checkpoint, str(checkpoint_path))
         print(f"💾 Emergency checkpoint saved: {checkpoint_path}")
     
     def _log_metrics(self, metrics):
-        """Log metrics to TensorBoard and W&B (master only)."""
-        if not xm.is_master_ordinal():
-            return
-        
+        """Log metrics to TensorBoard and W&B."""
         # TensorBoard
         if self.writer is not None:
             for key, value in metrics.items():
@@ -556,10 +455,7 @@ class TPUTrainer:
             self.wandb.log(metrics, step=self.global_step)
     
     def _save_checkpoint(self, model, filename):
-        """Save checkpoint (master only, memory-optimized)."""
-        if not xm.is_master_ordinal():
-            return
-        
+        """Save checkpoint (memory-optimized)."""
         import torch_xla.utils.serialization as xser
         
         checkpoint_path = Path(self.config['checkpoint']['save_dir']) / filename
@@ -575,10 +471,10 @@ class TPUTrainer:
             'config': self.config
         }
         
-        # Memory-optimized save (master only)
-        xser.save(checkpoint, str(checkpoint_path), master_only=True)
+        # Memory-optimized save
+        xser.save(checkpoint, str(checkpoint_path))
         
-        xm.master_print(f"💾 Checkpoint saved: {checkpoint_path}")
+        print(f"💾 Checkpoint saved: {checkpoint_path}")
         
         # Upload to HuggingFace Hub if enabled
         if self.config.get('huggingface_hub', {}).get('enabled', False):
@@ -599,21 +495,21 @@ class TPUTrainer:
                 repo_type="model"
             )
             
-            xm.master_print(f"☁️  Uploaded to HuggingFace Hub: {repo_id}/{checkpoint_path.name}")
+            print(f"☁️  Uploaded to HuggingFace Hub: {repo_id}/{checkpoint_path.name}")
             
             # Clean up local checkpoint after successful upload to save disk space
             # Keep only best_model checkpoints locally
             if 'best_model' not in checkpoint_path.name:
                 try:
                     checkpoint_path.unlink()
-                    xm.master_print(f"🗑️  Deleted local checkpoint (saved to Hub): {checkpoint_path.name}")
+                    print(f"🗑️  Deleted local checkpoint (saved to Hub): {checkpoint_path.name}")
                 except Exception as e:
-                    xm.master_print(f"⚠️  Could not delete local checkpoint: {e}")
+                    print(f"⚠️  Could not delete local checkpoint: {e}")
             else:
-                xm.master_print(f"💾 Keeping best model checkpoint locally: {checkpoint_path.name}")
+                print(f"💾 Keeping best model checkpoint locally: {checkpoint_path.name}")
                 
         except Exception as e:
-            xm.master_print(f"⚠️  Failed to upload to HuggingFace Hub: {e}")
+            print(f"⚠️  Failed to upload to HuggingFace Hub: {e}")
     
     def _create_optimizer(self, model):
         """Create optimizer."""
