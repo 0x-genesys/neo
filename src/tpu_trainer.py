@@ -16,7 +16,8 @@ import sys
 
 # Reset all TPU discovery logic
 os.environ['TPU_PROCESS_ADDRESSES'] = 'local'
-os.environ['TPU_NUM_DEVICES'] = '8'
+# Tell XLA that we are NOT in a distributed setup
+os.environ['TPU_NUM_DEVICES'] = '1' # Set to 1 to stop it from looking for 8
 
 # This defines the physical 2x2x2 mesh of a v3-8
 os.environ['TPU_CHIPS_PER_HOST_BOUNDS'] = '2,2,2' 
