@@ -400,8 +400,9 @@ class TPUTrainer:
         step_count = 0
         
         # Calculate how many batches to skip if resuming mid-epoch
+        # Use self.train_loader (original DataLoader) not train_loader (PerDeviceLoader)
         batch_size = self.config['training']['batch_size']
-        dataset_size = len(train_loader.dataset)
+        dataset_size = len(self.train_loader.dataset)
         steps_per_epoch = (dataset_size // batch_size) // grad_accum_steps
         batches_to_skip = 0
         
@@ -415,7 +416,7 @@ class TPUTrainer:
         # Add tqdm progress bar
         try:
             from tqdm import tqdm
-            pbar = tqdm(enumerate(train_loader), total=len(train_loader), 
+            pbar = tqdm(enumerate(train_loader), total=len(self.train_loader), 
                        desc=f"Epoch {self.epoch}", 
                        disable=False,
                        initial=batches_to_skip)
