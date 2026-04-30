@@ -106,6 +106,7 @@ class TPUTrainer:
         config['training'].setdefault('gradient_accumulation_steps', 1)
         config['training'].setdefault('max_grad_norm', 1.0)
         config['training'].setdefault('eval_interval', 500)
+        config['training'].setdefault('skip_validation', False)  # Set to True to disable validation
         
         # TPU configuration
         self.num_cores = 8  # Kaggle TPU v3-8 has 8 cores
@@ -552,10 +553,13 @@ class TPUTrainer:
                 
                 # Checkpointing FIRST (before validation to ensure we save progress)
                 if self.global_step % save_interval == 0:
+                    print(f"\n💾 Checkpoint interval reached (step {self.global_step} % {save_interval} == 0)")
                     self._save_checkpoint(model, f"checkpoint_step_{self.global_step}.pt")
                 
-                # Validation at eval_interval (with error handling)
-                if self.global_step % eval_interval == 0:
+                # Validation at eval_interval (with error handling and config check)
+                skip_validation = self.config.get('training', {}).get('skip_validation', False)
+                
+                if not skip_validation and self.global_step % eval_interval == 0:
                     print(f"\n{'='*80}")
                     print(f"🔍 VALIDATION at step {self.global_step}")
                     print(f"{'='*80}")
@@ -565,6 +569,10 @@ class TPUTrainer:
                         xm.mark_step()  # Ensure all pending ops are done
                         import gc
                         gc.collect()  # Python garbage collection
+                        
+                        # Also clear Python's tensor cache
+                        if hasattr(torch.cuda, 'empty_cache'):
+                            torch.cuda.empty_cache()
                         
                         val_loss = self._validate(model)
                         
@@ -583,13 +591,20 @@ class TPUTrainer:
                     except RuntimeError as e:
                         if "reserve" in str(e) or "memory" in str(e).lower():
                             print(f"⚠️  Validation skipped due to memory constraints")
-                            print(f"   Error: {str(e)[:100]}...")
+                            print(f"   Error: {str(e)[:200]}...")
                             print(f"   Training will continue without validation")
+                            print(f"   Consider setting skip_validation: true in config")
                             model.train()  # Ensure model is back in training mode
                         else:
                             raise  # Re-raise if it's not a memory error
+                    except Exception as e:
+                        print(f"⚠️  Validation failed with error: {e}")
+                        print(f"   Training will continue")
+                        model.train()
                     
                     print(f"{'='*80}\n")
+                elif skip_validation and self.global_step % eval_interval == 0:
+                    print(f"\n⏭️  Validation skipped (skip_validation=true in config)")
     
     def _validate(self, model):
         """Validate on TPU with memory-efficient batching."""

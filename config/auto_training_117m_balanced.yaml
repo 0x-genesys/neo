@@ -70,7 +70,8 @@ training:
   warmup_steps: 1500
   max_grad_norm: 1.0
   dropout: 0.12
-  eval_interval: 1
+  skip_validation: true
+  eval_interval: 999999
   save_interval: 1
   log_interval: 20
   
