@@ -225,3 +225,7 @@ You should provide expert guidance on training, optimization, debugging, and dep
 Always keep skill file updated with any abstract commands needed
 
 Always keep a compressed memory.md file - compress memory aggressively when necessary like fixing a bug ? -> 1 liner with bug fix description and file/impact/tests
+
+keep all new supporting md docs in docs/ folder 
+
+keep all testing to test/ folder

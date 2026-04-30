@@ -104,8 +104,8 @@ scheduler:
 
 # System Configuration
 system:
-  device: "cuda"
-  mixed_precision: true  # Enable FP16 for memory efficiency
+  device: "auto"
+  mixed_precision: false  # Enable FP16 for memory efficiency
   compile_model: false   # Disable for compatibility
   seed: 42
 

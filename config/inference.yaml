@@ -13,8 +13,8 @@ device:
 # These are the default values used in interactive mode
 # You can override them via CLI arguments or in interactive mode with "set" command
 generation:
-  max_new_tokens: 100      # Maximum tokens to generate
-  temperature: 0.8         # Sampling temperature (0.1-2.0)
+  max_new_tokens: 300      # Maximum tokens to generate
+  temperature: 0.4         # Sampling temperature (0.1-2.0)
                           # Lower = more deterministic, Higher = more creative
   top_k: 50               # Keep only top k tokens for sampling
                           # Lower = more focused, Higher = more diverse
@@ -22,12 +22,56 @@ generation:
                           # Lower = more focused, Higher = more diverse
   num_return_sequences: 1  # Number of sequences to generate
 
+# KV Caching (PLANNED - Not yet implemented)
+# KV caching stores key/value tensors to avoid recomputing them
+# This provides 5-10x speedup for generation
+kv_cache:
+  enabled: false  # Enable KV caching (not yet implemented)
+  # When implemented, this will dramatically speed up generation
+
+# Conversation Mode (PLANNED - Not yet implemented)
+# Maintains conversation history with automatic context management
+conversation:
+  enabled: false  # Enable conversation memory (not yet implemented)
+  system_prompt: "You are a helpful assistant."
+  max_history_turns: 10  # Maximum conversation turns to keep
+  truncation_strategy: "simple"  # simple, summarize, or sliding_window
+
+# Context Management (PLANNED - Not yet implemented)
+context:
+  max_length: null  # Loaded from model config
+  truncation_strategy: "simple"  # simple, summarize, or sliding_window
+  summarization:
+    enabled: false  # Use summarization when context exceeds limit
+    method: "self"  # self (use model) or external (use separate model)
+    max_summary_length: 100
+
+# Quantization (PLANNED - Not yet implemented)
+# Quantization reduces model size and increases speed
+# GGUF for CPU/Apple Silicon, GPTQ for GPU
+quantization:
+  enabled: false  # Enable quantization (not yet implemented)
+  format: "auto"  # auto, gguf, gptq, or none
+  gguf:  # For CPU and Apple Silicon
+    model_path: null  # Path to .gguf file
+    n_threads: 8  # Number of CPU threads
+    n_gpu_layers: 0  # 0 for CPU, >0 for partial GPU offload
+  gptq:  # For NVIDIA GPUs
+    model_path: null  # Path to GPTQ model
+    bits: 4  # 4 or 8 bit quantization
+    group_size: 128
+
+# Streaming (PLANNED - Not yet implemented)
+streaming:
+  enabled: false  # Stream tokens as they're generated
+  # Provides better UX for long generations
+
 # Inference Optimization
 inference:
   use_torch_compile: false  # Use torch.compile for faster inference (PyTorch 2.0+)
                            # Note: First run will be slow due to compilation
-  use_kv_cache: true       # Use key-value caching for faster generation
   batch_size: 1            # Batch size for batch inference
+  torch_compile_mode: "default"  # default, reduce-overhead, max-autotune
 
 # Memory Management
 memory:
@@ -71,3 +115,14 @@ memory:
 #    Prompt: set temperature 1.0
 #    Prompt: set top_k 100
 #    Prompt: config  (to see current settings)
+
+# PLANNED FEATURES (See docs/ADVANCED_INFERENCE_ROADMAP.md)
+# 
+# 1. KV Caching - 5-10x faster generation
+# 2. Conversation Memory - Chatbot functionality with context
+# 3. Context Summarization - Intelligent context management
+# 4. Quantization - GGUF (CPU/Apple) and GPTQ (GPU) support
+# 5. Streaming - Real-time token generation
+#
+# These features are documented in the roadmap but not yet implemented.
+# Contributions welcome!

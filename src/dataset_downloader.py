@@ -43,7 +43,8 @@ class DatasetDownloader:
         self, 
         repo_id: str, 
         dataset_name: str,
-        force_download: bool = False
+        force_download: bool = False,
+        is_curriculum: bool = False
     ) -> Tuple[str, str, Dict]:
         """
         Download a pre-processed dataset from HuggingFace Hub.
@@ -52,6 +53,7 @@ class DatasetDownloader:
             repo_id: HuggingFace repository ID (e.g., "0x-genesys/mix_wiki_code_chat_data_300M_tokens")
             dataset_name: Local dataset name (e.g., "balanced_300m")
             force_download: Force re-download even if files exist
+            is_curriculum: Whether this is a curriculum dataset (separate source files)
             
         Returns:
             Tuple of (train_file_path, val_file_path, dataset_stats)
@@ -62,7 +64,7 @@ class DatasetDownloader:
         stats_file = dataset_dir / "dataset_stats.json"
         
         # Check if dataset already exists
-        if not force_download and self._dataset_exists(dataset_dir):
+        if not force_download and self._dataset_exists(dataset_dir, is_curriculum):
             print(f"✅ Dataset '{dataset_name}' already exists at {dataset_dir}")
             stats = self._load_stats(stats_file)
             return str(train_file), str(val_file), stats
@@ -148,10 +150,32 @@ class DatasetDownloader:
                 shutil.rmtree(dataset_dir)
             raise
     
-    def _dataset_exists(self, dataset_dir: Path) -> bool:
+    def _dataset_exists(self, dataset_dir: Path, is_curriculum: bool = False) -> bool:
         """Check if dataset files exist locally."""
-        train_file = dataset_dir / "train.bin"
-        return train_file.exists() and train_file.stat().st_size > 0
+        if is_curriculum:
+            # For curriculum datasets, check for source files
+            stats_file = dataset_dir / "dataset_stats.json"
+            if not stats_file.exists():
+                return False
+            
+            # Load stats to get source names
+            stats = self._load_stats(stats_file)
+            sources = stats.get('sources', {})
+            
+            # Check if all source files exist
+            for source in sources.keys():
+                if sources[source].get('tokens', 0) > 0:
+                    source_file = dataset_dir / f"{source}_train.bin"
+                    if not source_file.exists() or source_file.stat().st_size == 0:
+                        return False
+            
+            # Check validation file
+            val_file = dataset_dir / "val.bin"
+            return val_file.exists() and val_file.stat().st_size > 0
+        else:
+            # For standard datasets, check for train.bin
+            train_file = dataset_dir / "train.bin"
+            return train_file.exists() and train_file.stat().st_size > 0
     
     def _load_stats(self, stats_file: Path) -> Dict:
         """Load dataset statistics from JSON file."""
@@ -222,10 +246,16 @@ class DatasetDownloader:
         if not hf_config:
             return None
         
+        # Check if curriculum learning is enabled
+        training_config = config.get('training', {})
+        curriculum_config = training_config.get('curriculum_learning', {})
+        is_curriculum = curriculum_config.get('enabled', False)
+        
         return {
             'repo_id': hf_config.get('repo_id'),
             'dataset_name': hf_config.get('dataset_name', 'balanced_300m'),
-            'auto_download': hf_config.get('auto_download', True)
+            'auto_download': hf_config.get('auto_download', True),
+            'is_curriculum': is_curriculum
         }
     
     def ensure_dataset_available(self, config: Dict) -> Tuple[str, str, Dict]:
@@ -295,7 +325,8 @@ class DatasetDownloader:
         print(f"📥 Dataset files not found locally, downloading from HuggingFace...")
         return self.download_dataset(
             repo_id=hf_config['repo_id'],
-            dataset_name=hf_config['dataset_name']
+            dataset_name=hf_config['dataset_name'],
+            is_curriculum=hf_config.get('is_curriculum', False)
         )
 
 
