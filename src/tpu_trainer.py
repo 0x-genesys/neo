@@ -13,10 +13,18 @@ import os
 import sys
 
 # 1. Force the internal XLA runtime to see this as a single-host 8-core machine
-os.environ['TPU_NUM_DEVICES'] = '8'
-os.environ['TPU_CHIPS_PER_HOST_BOUNDS'] = '2,2,1' # Specific 3D mesh for v3-8
-os.environ['TPU_HOST_BOUNDS'] = '1,1,1'
+
+# Reset all TPU discovery logic
 os.environ['TPU_PROCESS_ADDRESSES'] = 'local'
+os.environ['TPU_NUM_DEVICES'] = '8'
+
+# This defines the physical 2x2x2 mesh of a v3-8
+os.environ['TPU_CHIPS_PER_HOST_BOUNDS'] = '2,2,2' 
+os.environ['TPU_HOST_BOUNDS'] = '1,1,1'
+
+# Force PJRT to ignore the network metadata
+os.environ['PJRT_DEVICE'] = 'TPU'
+os.environ['XLA_USE_BF16'] = '1'
 
 # 2. Disable the metric server which is causing the port errors in your logs
 os.environ['XLA_METRIC_SERVER_PORT'] = '0'
