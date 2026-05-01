@@ -38,7 +38,7 @@ model:
   context_length: 512 # Standard context length
   dropout: 0.12       # Moderate regularization
   use_flash_attention: false
-  use_gradient_checkpointing: false  # Will be auto-enabled if needed
+  use_gradient_checkpointing: false  # ENABLED: Saves ~50% activation memory on TPU
 
 # Training Configuration - Hardware Adaptive
 # The system will automatically adjust these based on detected hardware
@@ -51,7 +51,7 @@ training:
   gradient_accumulation_steps: 8  # Auto-adjusted to maintain effective batch
   
   # Hardware-specific overrides (applied automatically):
-  # TPU:  batch_size=128, grad_accum=4  → effective=512
+  # TPU:  batch_size=64, grad_accum=8  → effective=512 (reduced from 128 for memory)
   # CUDA: batch_size=16,  grad_accum=8  → effective=128 (or 512 with accum)
   # MPS:  batch_size=8,   grad_accum=16 → effective=128
   # CPU:  batch_size=4,   grad_accum=32 → effective=128
@@ -73,7 +73,7 @@ training:
   skip_validation: true
   eval_interval: 999999
   save_interval: 2500
-  log_interval: 20
+  log_interval: 200
   
   # Curriculum Learning - Same across all hardware
   curriculum_learning:
@@ -134,7 +134,6 @@ checkpoint:
   save_dir: "checkpoints/auto_training_117m_balanced"
   resume_from: null
   save_best_only: false
-  
 
 # Logging
 logging:

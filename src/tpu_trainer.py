@@ -324,6 +324,15 @@ class TPUTrainer:
                     
                     # Update the dataset distribution
                     self.train_loader.dataset.update_distribution(new_distribution)
+                    
+                    # CRITICAL: Aggressive memory cleanup after curriculum update
+                    # Curriculum changes can create new XLA graph variants
+                    print("🧹 Cleaning up memory after curriculum update...")
+                    xm.mark_step()
+                    xm.wait_device_ops()
+                    import gc
+                    gc.collect()
+                    print("✅ Memory cleanup complete")
             
             # Create parallel loader for efficient TPU data loading
             # This automatically distributes data across all 8 TPU cores
@@ -430,8 +439,9 @@ class TPUTrainer:
         
         grad_accum_steps = self.config['training']['gradient_accumulation_steps']
         log_interval = self.config['logging']['log_interval']
-        # Check both training and checkpoint sections for save_interval (for backwards compatibility)
-        save_interval = self.config.get('training', {}).get('save_interval', 1000)
+        # Check checkpoint section first, then training section for backwards compatibility
+        save_interval = self.config.get('checkpoint', {}).get('save_interval',
+                        self.config.get('training', {}).get('save_interval', 1000))
         eval_interval = self.config['training']['eval_interval']
         
         epoch_loss = 0.0
@@ -520,6 +530,21 @@ class TPUTrainer:
                 
                 self.global_step += 1
                 
+                # CRITICAL: Aggressive memory management every 50 steps to prevent leaks
+                if self.global_step % 50 == 0:
+                    xm.mark_step()  # Sync all pending XLA ops
+                    import gc
+                    gc.collect()  # Python garbage collection
+                    # Clear any cached tensors
+                    if hasattr(torch, 'xla') and hasattr(torch.xla, '_XLAC'):
+                        try:
+                            # Force XLA to release unused memory
+                            torch.xla._XLAC._xla_sync_multi(
+                                [self.device], [], wait=True, sync_xla_data=True
+                            )
+                        except:
+                            pass  # Ignore if method doesn't exist
+                
                 # Debug: Always print for now to diagnose
                 print(f"🔄 Step incremented to: {self.global_step} (batch {batch_idx + 1})")
                 
@@ -561,7 +586,18 @@ class TPUTrainer:
                 # Checkpointing FIRST (before validation to ensure we save progress)
                 if self.global_step % save_interval == 0:
                     print(f"\n💾 Checkpoint interval reached (step {self.global_step} % {save_interval} == 0)")
+                    
+                    # Aggressive memory cleanup before checkpoint
+                    xm.mark_step()
+                    xm.wait_device_ops()
+                    import gc
+                    gc.collect()
+                    
                     self._save_checkpoint(model, f"checkpoint_step_{self.global_step}.pt")
+                    
+                    # Aggressive memory cleanup after checkpoint
+                    xm.mark_step()
+                    gc.collect()
                 
                 # Validation at eval_interval (with error handling and config check)
                 skip_validation = self.config.get('training', {}).get('skip_validation', False)
