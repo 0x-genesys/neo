@@ -57,6 +57,12 @@ def main():
         help='Checkpoint filename from HuggingFace Hub (e.g., "checkpoint.pt")'
     )
     parser.add_argument(
+        '--resume-epoch',
+        type=int,
+        default=None,
+        help='Force resume from specific epoch (overrides checkpoint epoch for curriculum)'
+    )
+    parser.add_argument(
         '--model-repo',
         type=str,
         default='0x-genesys/neo_weights_checkpoints',
@@ -124,6 +130,12 @@ def main():
         print(f"\n📥 Resuming from remote checkpoint: {args.resume_remote}")
         local_path = get_remote_checkpoint_path(args.resume_remote, args.model_repo)
         config['checkpoint']['resume_from'] = local_path
+    
+    # Force specific epoch if provided (for curriculum correctness)
+    if args.resume_epoch is not None:
+        config['checkpoint']['force_epoch'] = args.resume_epoch
+        print(f"⚠️  Forcing resume at epoch {args.resume_epoch} (overriding checkpoint)")
+    
     if args.dataset:
         # Support both dataset_name (HuggingFace) and train_file (binary)
         if args.dataset.endswith('.bin'):

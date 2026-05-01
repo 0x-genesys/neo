@@ -230,18 +230,28 @@ class TPUTrainer:
         max_epochs = self.config['training'].get('max_epochs', 10)
         max_steps = self.config['training'].get('max_steps', None)
         
-        # Calculate steps per epoch
-        steps_per_epoch = max_steps // max_epochs if max_steps else 1000
+        # Calculate steps per epoch - MUST use float division for accuracy
+        steps_per_epoch = max_steps / max_epochs if max_steps else 1000
         
         # Start from the epoch we left off at (if resuming)
         start_epoch = self.epoch
         
-        # If resuming mid-training and we've completed this epoch, move to next
+        # CRITICAL: Always recalculate epoch from global_step for curriculum correctness
+        # This prevents catastrophic forgetting from wrong curriculum distribution
         if self.global_step > 0:
-            calculated_epoch = self.global_step // steps_per_epoch
-            if calculated_epoch > self.epoch:
+            calculated_epoch = int(self.global_step // steps_per_epoch)
+            
+            # Check if user forced a specific epoch via --resume-epoch
+            forced_epoch = self.config.get('checkpoint', {}).get('force_epoch')
+            if forced_epoch is not None:
+                print(f"🔧 FORCED EPOCH: Using epoch {forced_epoch} (user override)")
+                print(f"   Checkpoint had: epoch {self.epoch}")
+                print(f"   Calculated from step {self.global_step}: epoch {calculated_epoch}")
+                self.epoch = forced_epoch
+                start_epoch = forced_epoch
+            elif calculated_epoch != self.epoch:
                 print(f"⚠️  Checkpoint says epoch {self.epoch}, but step {self.global_step} indicates epoch {calculated_epoch}")
-                print(f"   Adjusting to epoch {calculated_epoch}")
+                print(f"   Adjusting to epoch {calculated_epoch} (CRITICAL for curriculum)")
                 self.epoch = calculated_epoch
                 start_epoch = calculated_epoch
         
@@ -405,7 +415,12 @@ class TPUTrainer:
                     
                     if max_steps:
                         steps_per_epoch = max_steps / max_epochs
-                        self.epoch = int(self.global_step / steps_per_epoch)
+                        # CRITICAL: Use floor division to get which epoch we're IN
+                        # If step 10979 and steps_per_epoch=4577:
+                        # 10979 // 4577 = 2, but we're IN epoch 2 (0-indexed)
+                        # Epochs: 0 (0-4576), 1 (4577-9153), 2 (9154-13730)
+                        # Step 10979 is in range 9154-13730, so epoch 2
+                        self.epoch = int(self.global_step // steps_per_epoch)
                         print(f"   ✅ Calculated epoch from step: {self.epoch}")
                         print(f"      (step {self.global_step} / {steps_per_epoch:.0f} steps per epoch)")
                     elif hasattr(self.train_loader, 'dataset'):

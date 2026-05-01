@@ -1,32 +1,94 @@
 #!/bin/bash
-# Setup script for Kaggle TPU environment
+#
+# Kaggle TPU Setup Script for torch_xla 2.9.0 + Python 3.12
+# Ensures binary alignment and PJRT compatibility
+#
+
+set -e
 
 echo "================================================================================"
-echo "Kaggle TPU Setup"
+echo "Kaggle TPU Environment Setup - torch_xla 2.9.0 + Python 3.12"
 echo "================================================================================"
 echo ""
 
-# Check if running on Kaggle
-if [ ! -d "/kaggle" ]; then
-    echo "⚠️  This script is designed for Kaggle environment"
-    echo "   Current environment does not appear to be Kaggle"
-    exit 1
+# Check Python version
+PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
+echo "Python version: $PYTHON_VERSION"
+
+if [ "$PYTHON_VERSION" != "3.12" ]; then
+    echo "⚠️  Warning: This script is optimized for Python 3.12"
+    echo "   Current version: $PYTHON_VERSION"
+    echo "   Proceeding anyway..."
 fi
 
-echo "✅ Kaggle environment detected"
+# Create virtual environment if it doesn't exist
+if [ ! -d "venv" ]; then
+    echo ""
+    echo "Creating virtual environment..."
+    python3 -m venv venv
+    echo "✅ Virtual environment created"
+fi
+
+# Activate virtual environment
+echo ""
+echo "Activating virtual environment..."
+source venv/bin/activate
+
+# Upgrade pip
+echo ""
+echo "Upgrading pip..."
+pip install --upgrade pip
+
+# CRITICAL: Install torch_xla 2.9.0 ecosystem with binary alignment
+echo ""
+echo "================================================================================"
+echo "Installing PyTorch + torch_xla 2.9.0 (PJRT-compatible)"
+echo "================================================================================"
 echo ""
 
-# Note: We'll verify TPU after installing torch_xla
-# Kaggle TPU might not expose /dev/accel0 until torch_xla is loaded
-echo "📝 Note: TPU verification will happen after torch_xla installation"
-echo ""
+# # Uninstall any existing torch packages to prevent conflicts
+# echo "Removing any existing PyTorch installations..."
+# pip uninstall -y torch torchvision torch_xla 2>/dev/null || true
 
-# Install torch_xla
-echo "📦 Installing torch_xla using official setup script..."
-echo "   This may take a few minutes..."
+# Install torch 2.9.0 with CUDA 12.8 support
 echo ""
+echo "Installing torch 2.9.0..."
+# pip install --force-reinstall torch==2.9.0
 
-# Download and run the official PyTorch XLA setup script (as per Kaggle docs)
+# # Install torch_xla 2.9.0 with TPU support from libtpu-releases
+# echo ""
+# echo "Installing torch_xla[tpu]==2.9.0..."
+# pip install --force-reinstall \
+#     --extra-index-url https://storage.googleapis.com/libtpu-releases/index.html \
+#     torch_xla[tpu]==2.9.0
+
+# # Install torchvision 0.24.0 (compatible with torch 2.9.0)
+# echo ""
+# echo "Installing torchvision 0.24.0..."
+# pip install --force-reinstall torchvision==0.24.0
+
+# # Install fsspec with correct version for datasets compatibility
+# echo ""
+# echo "Installing fsspec 2026.2.0..."
+# pip install --force-reinstall fsspec==2026.2.0
+
+# echo ""
+# echo "================================================================================"
+# echo "Installing Project Dependencies"
+# echo "================================================================================"
+# echo ""
+
+# # Install other requirements
+# if [ -f "requirements.txt" ]; then
+#     echo "Installing from requirements.txt..."
+#     # Skip torch packages as they're already installed
+#     grep -v "^torch" requirements.txt | grep -v "^#" | grep -v "^$" | \
+#         xargs -I {} pip install {}
+#     echo "✅ Dependencies installed"
+# else
+#     echo "⚠️  requirements.txt not found, skipping..."
+# fi
+
 pip install --force-reinstall --no-cache-dir \
     torch==2.9.0 \
     torch_xla[tpu]==2.9.0 \
@@ -34,72 +96,68 @@ pip install --force-reinstall --no-cache-dir \
     fsspec==2026.2.0 \
     -f https://storage.googleapis.com/libtpu-releases/index.html
 
-if [ $? -eq 0 ]; then
-    echo "✅ torch_xla installed successfully"
-else
-    echo "❌ Failed to install torch_xla"
-    echo ""
-    echo "Try manual installation:"
-    echo "  curl https://raw.githubusercontent.com/pytorch/xla/master/contrib/scripts/env-setup.py -o pytorch-xla-env-setup.py"
-    echo "  python pytorch-xla-env-setup.py --version nightly --apt-packages libomp5 libopenblas-dev"
-    exit 1
-fi
-
+# Verify installation
+echo ""
+echo "================================================================================"
+echo "Verifying Installation"
+echo "================================================================================"
 echo ""
 
-# Verify installation
-echo "🔍 Verifying torch_xla installation and TPU availability..."
-python3 -c "
+python3 << 'EOF'
 import sys
+print(f"Python: {sys.version}")
+
+try:
+    import torch
+    print(f"✅ torch: {torch.__version__}")
+except ImportError as e:
+    print(f"❌ torch: {e}")
+    sys.exit(1)
+
 try:
     import torch_xla
-    import torch_xla.core.xla_model as xm
-    print(f'✅ torch_xla version: {torch_xla.__version__}')
-    
-    try:
-        device = xm.xla_device()
-        print(f'✅ TPU device: {device}')
-        print(f'✅ TPU cores: {xm.xrt_world_size()}')
-        print(f'✅ TPU ordinal: {xm.get_ordinal()}')
-    except Exception as e:
-        print(f'❌ TPU not available: {e}')
-        print('')
-        print('To enable TPU in Kaggle:')
-        print('1. Go to notebook settings (gear icon)')
-        print('2. Under \"Accelerator\", select \"TPU v3-8\"')
-        print('3. Click \"Save\"')
-        print('4. Restart the notebook')
-        print('')
-        print('Note: Make sure you see \"TPU v3-8\" in the accelerator dropdown')
-        sys.exit(1)
+    print(f"✅ torch_xla: {torch_xla.__version__}")
 except ImportError as e:
-    print(f'❌ torch_xla import failed: {e}')
+    print(f"❌ torch_xla: {e}")
     sys.exit(1)
-"
 
-if [ $? -eq 0 ]; then
-    echo ""
-    echo "================================================================================"
-    echo "✅ Kaggle TPU Setup Complete!"
-    echo "================================================================================"
-    echo ""
-    echo "You can now train with TPU:"
-    echo "  python train.py --config config/auto_training_117m_balanced.yaml --tpu"
-    echo ""
-    echo "Or let auto-detection handle it:"
-    echo "  python train.py --config config/auto_training_117m_balanced.yaml"
-    echo ""
-else
-    echo ""
-    echo "================================================================================"
-    echo "❌ TPU Setup Failed"
-    echo "================================================================================"
-    echo ""
-    echo "Possible reasons:"
-    echo "1. TPU not enabled in Kaggle notebook settings"
-    echo "2. Notebook needs to be restarted after enabling TPU"
-    echo "3. TPU quota exhausted (check Kaggle account limits)"
-    echo ""
-    echo "Please check the settings and try again."
-    exit 1
-fi
+try:
+    import torch_xla.core.xla_model as xm
+    print(f"✅ torch_xla.core.xla_model imported")
+except ImportError as e:
+    print(f"❌ torch_xla.core.xla_model: {e}")
+    sys.exit(1)
+
+try:
+    import torchvision
+    print(f"✅ torchvision: {torchvision.__version__}")
+except ImportError as e:
+    print(f"⚠️  torchvision: {e}")
+
+try:
+    import fsspec
+    print(f"✅ fsspec: {fsspec.__version__}")
+except ImportError as e:
+    print(f"⚠️  fsspec: {e}")
+
+print("\n" + "="*80)
+print("✅ Installation Complete!")
+print("="*80)
+print("\nIMPORTANT: Before running training, ensure these environment variables are set:")
+print("  export PJRT_DEVICE=TPU")
+print("  export TPU_PROCESS_ADDRESSES=local")
+print("  export TPU_NUM_DEVICES=8")
+print("\nOr use the train.py script which sets them automatically.")
+print("\nTo verify TPU availability, run:")
+print("  python scripts/check_tpu.py")
+EOF
+
+echo ""
+echo "================================================================================"
+echo "Setup Complete!"
+echo "================================================================================"
+echo ""
+echo "Next steps:"
+echo "1. Verify TPU: python scripts/check_tpu.py"
+echo "2. Start training: python train.py --config config/auto_training_117m_balanced.yaml --tpu"
+echo ""
