@@ -6,6 +6,7 @@ model:
   num_layers: 2       # Only 2 layers
   context_length: 128 # Short context
   dropout: 0.1
+  use_gradient_checkpointing: false  # Not needed for small model
 
 training:
   batch_size: 8
@@ -27,7 +28,7 @@ data:
   val_split: "validation"
   test_split: "test"
   max_length: 128
-  num_workers: 2
+  num_workers: 0  # Set to 0 for Mac compatibility (multiprocessing issues)
 
 tokenizer:
   type: "gpt2"

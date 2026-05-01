@@ -1,0 +1,100 @@
+# GPU Training Configuration - 1.5B Parameter Model (GPT-2 XL)
+# XL-scale model for state-of-the-art generation
+# Optimized for A100 GPU (80GB VRAM) or 4x A100 (40GB)
+
+model:
+  vocab_size: 100277  # GPT-4 tokenizer
+  d_model: 1600        # GPT-2 XL standard
+  num_heads: 25        # head_dim = 1600/25 = 64
+  num_layers: 48       # 4x GPT-2 Small
+  context_length: 2048
+  dropout: 0.1
+  use_gradient_checkpointing: true  # Required
+
+# Training Configuration
+training:
+  batch_size: 2        # Small due to model size
+  gradient_accumulation_steps: 64  # Effective batch = 128
+  max_epochs: 1
+  max_steps: 500000    # Long training for quality
+  learning_rate: 1.2e-4
+  weight_decay: 0.1
+  warmup_steps: 10000  # 2% of total steps
+  max_grad_norm: 1.0
+  eval_interval: 5000
+  save_interval: 10000
+  log_interval: 10
+
+# Data Configuration
+data:
+  dataset_name: "c4"   # C4 dataset (300B+ tokens)
+  dataset_config: "en"
+  train_split: "train"
+  val_split: "validation"
+  test_split: "validation"
+  max_length: 2048
+  num_workers: 4
+  pin_memory: true
+
+# Tokenizer Configuration
+tokenizer:
+  type: "Xenova/gpt-4"  # GPT-4 tokenizer (100k vocab)
+  vocab_size: 100277
+
+# Optimization
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  type: "cosine_with_warmup"
+  min_lr: 1.2e-5
+
+# System Configuration
+system:
+  device: "cuda"
+  mixed_precision: true  # Essential
+  compile_model: true
+  seed: 42
+
+# Checkpointing
+checkpoint:
+  save_dir: "checkpoints/gpu_training_1.5b"
+  resume_from: null
+  save_best_only: false
+
+# Logging
+logging:
+  use_wandb: false
+  wandb_project: "transformer-1.5b"
+  wandb_entity: null
+  log_dir: "logs/gpu_training_1.5b"
+
+# Generation
+generation:
+  max_new_tokens: 200
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  num_samples: 3
+
+# ============================================================================
+# MODEL SPECIFICATIONS
+# ============================================================================
+# Parameters: ~1.5B
+# Architecture: GPT-2 XL
+# Memory (FP16): ~48GB (model + optimizer + activations)
+# GPU Required: A100 80GB or 4x A100 40GB (with distributed training)
+# Training Time: 2-4 weeks on A100
+# Dataset: C4 (300B+ tokens)
+# Chinchilla Optimal: 1.5B × 20 = 30B tokens
+# Actual Training: 500K steps × 2 × 2048 × 64 = 131B tokens (4.4× optimal)
+# Expected Loss: ~0.6-0.8
+# Quality: Excellent, near GPT-3 quality
+# Cost: ~$3000-6000 on cloud GPU
+#
+# NOTE: For multi-GPU training, you'll need to implement distributed training
+# (DDP or FSDP). This config assumes single GPU with gradient checkpointing.
+# For 4x GPU setup, increase batch_size to 8 and reduce gradient_accumulation.
+# ============================================================================

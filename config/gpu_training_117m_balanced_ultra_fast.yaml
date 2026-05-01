@@ -1,0 +1,147 @@
+# ============================================================================
+# ULTRA FAST GPU Training - 117M Model (2x T4 Maximum Speed)
+# ============================================================================
+#
+# This config is AGGRESSIVELY optimized for 2x T4 GPUs
+# Expected speedup: 6-8x faster than default config
+# Training time: ~5 hours (vs ~30-40 hours)
+#
+# ⚠️  WARNING: Uses ~14-15GB per GPU - may OOM if other processes running
+#
+# Changes from default:
+# - context_length: 512 → 256 (4x less computation)
+# - batch_size: 16 → 96 (6x increase)
+# - gradient_accumulation_steps: 8 → 1 (no accumulation)
+# - use_gradient_checkpointing: true → false
+# - compile_model: false → true (PyTorch 2.0+ optimization)
+#
+# ============================================================================
+
+model:
+  vocab_size: 100277
+  d_model: 768
+  num_heads: 12
+  num_layers: 12
+  context_length: 256                # CHANGED: Reduced from 512
+  dropout: 0.12
+  use_flash_attention: false
+  use_gradient_checkpointing: false  # CHANGED: Disabled
+
+training:
+  batch_size: 96                     # CHANGED: Increased from 16
+  gradient_accumulation_steps: 1    # CHANGED: No accumulation
+  # Effective batch: 192 (96×1×2 GPUs) - smaller but much faster
+  max_epochs: 8
+  max_steps: 36621
+  learning_rate: 2.0e-4
+  weight_decay: 0.15
+  warmup_steps: 1500
+  max_grad_norm: 1.0
+  dropout: 0.12
+  eval_interval: 500
+  save_interval: 1000
+  log_interval: 10
+
+data:
+  dataset_type: "binary"
+  train_file: "data/balanced_300m/train.bin"
+  val_file: "data/balanced_300m/val.bin"
+  max_length: 256                    # CHANGED: Match context_length
+  num_workers: 8
+  pin_memory: true
+  
+  huggingface_dataset:
+    repo_id: "0x-genesys/mix_wiki_code_chat_data_300M_tokens"
+    dataset_name: "balanced_300m"
+    auto_download: true
+
+tokenizer:
+  type: "tiktoken"
+  vocab_size: 100277
+
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  type: "cosine"
+  min_lr: 2.0e-5
+
+system:
+  device: "cuda"
+  mixed_precision: true
+  compile_model: true                # CHANGED: Enabled for speed
+  seed: 42
+
+checkpoint:
+  save_dir: "checkpoints/gpu_training_117m_balanced_ultra_fast"
+  resume_from: null
+  save_best_only: false
+
+logging:
+  use_wandb: false
+  wandb_project: "transformer-117m-balanced-ultra-fast"
+  wandb_entity: null
+  log_dir: "logs/gpu_training_117m_balanced_ultra_fast"
+
+huggingface_hub:
+  enabled: true
+  repo_id: "0x-genesys/neo_weights_checkpoints"
+  upload_best_only: false
+
+generation:
+  max_new_tokens: 100
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  num_samples: 3
+
+# ============================================================================
+# PERFORMANCE EXPECTATIONS
+# ============================================================================
+#
+# Speed: ~0.2-0.3 sec/step (vs 2-3 sec/step default)
+# Throughput: ~80,000 tokens/sec (vs ~8,000 default)
+# Total time: ~3-5 hours (vs ~30-40 hours default)
+# GPU memory: ~14-15GB per GPU (⚠️  near limit for T4)
+# GPU utilization: 95-100%
+#
+# ============================================================================
+# CAVEATS
+# ============================================================================
+#
+# 1. Context length reduced to 256 tokens (vs 512)
+#    - Model can only see 256 tokens at once
+#    - May hurt performance on long-context tasks
+#    - Good for most tasks (chat, code completion, etc.)
+#
+# 2. High memory usage
+#    - Uses ~14-15GB per GPU
+#    - May OOM if other processes running
+#    - Close other GPU applications before training
+#
+# 3. First epoch slower (torch.compile)
+#    - First ~100 steps will be slow (compiling)
+#    - Subsequent steps will be very fast
+#    - Worth the wait for long training runs
+#
+# 4. Smaller effective batch
+#    - 192 vs 256 in default config
+#    - May have slightly noisier gradients
+#    - Usually not a problem with good learning rate
+#
+# ============================================================================
+# USAGE
+# ============================================================================
+#
+# python train.py --config config/gpu_training_117m_balanced_ultra_fast.yaml
+#
+# Monitor GPU (watch for OOM):
+#   nvidia-smi -l 1
+#
+# If OOM occurs:
+#   1. Reduce batch_size to 64
+#   2. Or increase gradient_accumulation_steps to 2
+#
+# ============================================================================

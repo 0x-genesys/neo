@@ -11,29 +11,76 @@ import yaml
 class TextGenerator:
     """Production-ready text generator."""
     
-    def __init__(self, model_path, config_path=None, device=None):
+    def _deep_merge_configs(self, base_config, override_config):
+        """
+        Deep merge two configs. Override config takes precedence.
+        
+        Args:
+            base_config: Base configuration (from checkpoint)
+            override_config: Override configuration (from user file)
+            
+        Returns:
+            Merged configuration
+        """
+        import copy
+        merged = copy.deepcopy(base_config)
+        
+        for key, value in override_config.items():
+            if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+                # Recursively merge nested dicts
+                merged[key] = self._deep_merge_configs(merged[key], value)
+            else:
+                # Override value
+                merged[key] = value
+        
+        return merged
+    
+    def __init__(self, model_path, config_path=None, device=None, model_repo=None):
         """
         Initialize the text generator.
         
         Args:
-            model_path: Path to saved model checkpoint
+            model_path: Path to saved model checkpoint (local or remote filename)
             config_path: Path to config file (optional)
             device: Device to run on (cuda/cpu/mps)
+            model_repo: HuggingFace repository ID for remote loading (optional)
         """
+        # Handle remote model loading
+        if model_repo:
+            print(f"📥 Loading model from HuggingFace Hub...")
+            print(f"   Repository: {model_repo}")
+            print(f"   File: {model_path}")
+            try:
+                from .remote_model_loader import get_remote_checkpoint_path
+            except ImportError:
+                import sys
+                sys.path.insert(0, str(Path(__file__).parent.parent))
+                from src.remote_model_loader import get_remote_checkpoint_path
+            
+            # Download checkpoint from HuggingFace Hub
+            model_path = get_remote_checkpoint_path(model_path, model_repo)
+        
         self.model_path = Path(model_path)
         
         # Load checkpoint
         print(f"Loading model from {model_path}...")
         checkpoint = torch.load(model_path, map_location='cpu')
         
-        # Get config
+        # Get config - always start with checkpoint config
+        checkpoint_config = checkpoint.get('config', None)
+        if checkpoint_config is None:
+            raise ValueError("Config not found in checkpoint. This checkpoint may be corrupted or from an old version.")
+        
+        # If user provides a config file, merge it (user config overrides only specified fields)
         if config_path:
             with open(config_path, 'r') as f:
-                self.config = yaml.safe_load(f)
+                user_config = yaml.safe_load(f)
+            
+            # Deep merge: checkpoint config as base, user config overrides
+            self.config = self._deep_merge_configs(checkpoint_config, user_config)
+            print(f"✅ Merged config from {config_path} with checkpoint config")
         else:
-            self.config = checkpoint.get('config', None)
-            if self.config is None:
-                raise ValueError("Config not found in checkpoint and no config_path provided")
+            self.config = checkpoint_config
         
         # Setup device
         if device is None:
@@ -49,11 +96,46 @@ class TextGenerator:
             self.device = torch.device(device)
         
         # Load tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.config['tokenizer']['type']
-        )
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+        tokenizer_type = self.config['tokenizer']['type']
+        print(f"Loading tokenizer: {tokenizer_type}")
+        
+        # Check if using tiktoken
+        if tokenizer_type == 'tiktoken' or 'cl100k' in tokenizer_type.lower():
+            try:
+                import tiktoken
+            except ImportError:
+                raise ImportError("tiktoken is required for this model. Install with: pip install tiktoken")
+            
+            print("Using tiktoken cl100k_base (GPT-4) tokenizer")
+            encoding = tiktoken.get_encoding("cl100k_base")
+            
+            # Create a wrapper to match HuggingFace interface (same as training code)
+            class TiktokenWrapper:
+                def __init__(self, encoding):
+                    self.encoding = encoding
+                    self.vocab_size = encoding.n_vocab
+                    self.eos_token = "<|endoftext|>"
+                    self.pad_token = "<|endoftext|>"
+                    # Get special token IDs properly
+                    self.eos_token_id = encoding.encode_single_token(self.eos_token)
+                    self.pad_token_id = self.eos_token_id
+                
+                def encode(self, text, **kwargs):
+                    return self.encoding.encode(text, allowed_special='all')
+                
+                def decode(self, tokens, **kwargs):
+                    return self.encoding.decode(tokens)
+                
+                def __len__(self):
+                    return self.vocab_size
+            
+            self.tokenizer = TiktokenWrapper(encoding)
+            print(f"✅ Tiktoken loaded: vocab_size={self.tokenizer.vocab_size:,}")
+        else:
+            # Use HuggingFace tokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_type)
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
         
         # Create and load model
         try:
@@ -249,7 +331,10 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='Text generation with trained transformer')
-    parser.add_argument('--model', type=str, required=True, help='Path to model checkpoint')
+    parser.add_argument('--model', type=str, help='Path to local model checkpoint')
+    parser.add_argument('--model-remote', type=str, help='Remote model filename from HuggingFace Hub (e.g., "best_model.pt")')
+    parser.add_argument('--model-repo', type=str, default='0x-genesys/neo_weights_checkpoints', 
+                        help='HuggingFace model repository ID')
     parser.add_argument('--config', type=str, help='Path to config file')
     parser.add_argument('--prompt', type=str, help='Text prompt for generation')
     parser.add_argument('--interactive', action='store_true', help='Run in interactive mode')
@@ -261,8 +346,18 @@ def main():
     
     args = parser.parse_args()
     
+    # Validate model arguments
+    if not args.model and not args.model_remote:
+        parser.error("Either --model or --model-remote must be provided")
+    if args.model and args.model_remote:
+        parser.error("Cannot specify both --model and --model-remote")
+    
+    # Determine model path and repo
+    model_path = args.model_remote if args.model_remote else args.model
+    model_repo = args.model_repo if args.model_remote else None
+    
     # Initialize generator
-    generator = TextGenerator(args.model, args.config)
+    generator = TextGenerator(model_path, args.config, model_repo=model_repo)
     
     if args.interactive:
         generator.interactive_mode()

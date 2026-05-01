@@ -3,13 +3,30 @@ Training infrastructure with checkpointing, logging, and validation.
 """
 import torch
 import torch.nn as nn
-from torch.cuda.amp import autocast, GradScaler
 from torch.utils.tensorboard import SummaryWriter
 import os
 import time
+import warnings
 from tqdm import tqdm
 import numpy as np
 from pathlib import Path
+
+# Import GradScaler with version compatibility
+try:
+    # PyTorch 2.4+
+    from torch.amp import autocast, GradScaler
+except ImportError:
+    try:
+        # PyTorch 2.0-2.3
+        from torch.cuda.amp import autocast, GradScaler
+    except ImportError:
+        # Fallback for older versions or CPU-only
+        from torch.amp import autocast
+        GradScaler = None
+
+# Suppress harmless DataParallel warning (automatically handled by PyTorch)
+warnings.filterwarnings('ignore', message='Was asked to gather along dimension 0')
+
 
 
 class Trainer:
@@ -34,7 +51,21 @@ class Trainer:
         
         # Mixed precision training
         self.use_amp = config['system']['mixed_precision']
-        self.scaler = GradScaler() if self.use_amp else None
+        device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+        
+        # Initialize GradScaler with version compatibility
+        if self.use_amp and GradScaler is not None:
+            try:
+                # PyTorch 2.4+ requires device_type parameter
+                self.scaler = GradScaler(device_type)
+            except TypeError:
+                # PyTorch 2.0-2.3 doesn't accept device_type
+                self.scaler = GradScaler()
+        else:
+            self.scaler = None
+            if self.use_amp and GradScaler is None:
+                print("⚠️  Mixed precision requested but GradScaler not available. Disabling mixed precision.")
+                self.use_amp = False
         
         # Tracking
         self.global_step = 0
@@ -43,10 +74,13 @@ class Trainer:
         
         # Logging
         self.writer = None
+        self.log_buffer = []  # Buffer for batched logging
         if config['logging']['log_dir']:
             log_dir = Path(config['logging']['log_dir'])
             log_dir.mkdir(parents=True, exist_ok=True)
-            self.writer = SummaryWriter(log_dir)
+            # Reduce flush frequency to save I/O
+            self.writer = SummaryWriter(log_dir, flush_secs=300)  # Flush every 5 minutes instead of default 120s
+            print(f"TensorBoard logging to: {log_dir} (flush every 5 min)")
         
         # Checkpointing
         self.checkpoint_dir = Path(config['checkpoint']['save_dir'])
@@ -71,11 +105,53 @@ class Trainer:
         print(f"Mixed precision training: {self.use_amp}")
     
     def _setup_device(self):
-        """Setup training device with proper detection."""
+        """Setup training device with proper detection and memory checking."""
         from .device_utils import select_device, check_mixed_precision_support, print_device_recommendations
         
         device_name = self.config['system']['device']
         device = select_device(device_name, verbose=True)
+        
+        # Check GPU memory if using CUDA
+        if device.type == 'cuda':
+            import torch.cuda as cuda
+            total_memory = cuda.get_device_properties(device).total_memory / 1e9  # GB
+            print(f"\n🔍 GPU Memory Check:")
+            print(f"   Total memory: {total_memory:.2f}GB")
+            
+            # Estimate model memory requirements
+            model_params = sum(p.numel() for p in self.model.parameters())
+            model_memory_gb = model_params * 2 / 1e9  # FP16
+            optimizer_memory_gb = model_params * 8 / 1e9  # Adam states
+            
+            batch_size = self.config['training']['batch_size']
+            context_length = self.config['model']['context_length']
+            d_model = self.config['model']['d_model']
+            num_layers = self.config['model']['num_layers']
+            
+            # Rough activation estimate (with gradient checkpointing)
+            if self.config['model'].get('use_gradient_checkpointing', False):
+                activation_memory_gb = batch_size * context_length * d_model * num_layers * 2 / 1e9  # Reduced by checkpointing
+            else:
+                activation_memory_gb = batch_size * context_length * d_model * num_layers * 4 * 2 / 1e9
+            
+            estimated_memory = model_memory_gb + optimizer_memory_gb + activation_memory_gb + 1.5  # +1.5GB buffer
+            
+            print(f"   Estimated usage: {estimated_memory:.2f}GB")
+            print(f"     - Model (FP16): {model_memory_gb:.2f}GB")
+            print(f"     - Optimizer: {optimizer_memory_gb:.2f}GB")
+            print(f"     - Activations: {activation_memory_gb:.2f}GB")
+            print(f"     - Buffer: 1.50GB")
+            
+            if estimated_memory > total_memory * 0.9:
+                print(f"\n⚠️  WARNING: Estimated memory ({estimated_memory:.1f}GB) is close to GPU limit ({total_memory:.1f}GB)")
+                print(f"   Recommendations:")
+                print(f"   1. Reduce batch_size (current: {batch_size})")
+                print(f"   2. Enable gradient_checkpointing (current: {self.config['model'].get('use_gradient_checkpointing', False)})")
+                print(f"   3. Reduce context_length (current: {context_length})")
+                print(f"   4. Use config: gpu_training_117m_15gb.yaml for 15GB GPUs")
+                print(f"\n   Consider using: python train.py --config config/gpu_training_117m_15gb.yaml")
+            else:
+                print(f"   ✅ Memory estimate looks good ({estimated_memory/total_memory*100:.0f}% of GPU)")
         
         # Check mixed precision support
         if self.config['system']['mixed_precision']:
@@ -133,25 +209,52 @@ class Trainer:
         return optimizer
     
     def _create_scheduler(self):
-        """Create learning rate scheduler."""
-        if self.config['scheduler']['type'] == 'cosine':
-            from torch.optim.lr_scheduler import CosineAnnealingLR
-            scheduler = CosineAnnealingLR(
-                self.optimizer,
-                T_max=self.config['training']['max_steps'],
-                eta_min=self.config['scheduler']['min_lr']
-            )
-        else:
-            scheduler = None
+        """Create learning rate scheduler with warmup support."""
+        import math
+        from torch.optim.lr_scheduler import LambdaLR
+        
+        warmup_steps = self.config['training']['warmup_steps']
+        max_steps = self.config['training']['max_steps']
+        min_lr = self.config['scheduler']['min_lr']
+        max_lr = self.config['training']['learning_rate']
+        min_lr_ratio = min_lr / max_lr
+        
+        def lr_lambda(step):
+            """
+            Learning rate schedule with linear warmup and cosine decay.
+            
+            Phase 1 (0 to warmup_steps): Linear warmup from 0 to 1.0
+            Phase 2 (warmup_steps to max_steps): Cosine decay from 1.0 to min_lr_ratio
+            """
+            if step < warmup_steps:
+                # Linear warmup: gradually increase from 0 to 1
+                return step / max(1, warmup_steps)
+            else:
+                # Cosine decay: smoothly decrease from 1 to min_lr_ratio
+                progress = (step - warmup_steps) / max(1, max_steps - warmup_steps)
+                progress = min(progress, 1.0)  # Clamp to [0, 1]
+                cosine_decay = 0.5 * (1 + math.cos(math.pi * progress))
+                return min_lr_ratio + (1 - min_lr_ratio) * cosine_decay
+        
+        scheduler = LambdaLR(self.optimizer, lr_lambda=lr_lambda)
+        
+        print(f"✅ Learning rate scheduler created:")
+        print(f"   - Warmup steps: {warmup_steps}")
+        print(f"   - Max steps: {max_steps}")
+        print(f"   - Max LR: {max_lr:.2e}")
+        print(f"   - Min LR: {min_lr:.2e}")
         
         return scheduler
     
     def save_checkpoint(self, filename='checkpoint.pt', is_best=False):
-        """Save training checkpoint."""
+        """Save training checkpoint and optionally upload to HuggingFace Hub."""
+        # Handle DataParallel wrapper
+        model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
+        
         checkpoint = {
             'epoch': self.epoch,
             'global_step': self.global_step,
-            'model_state_dict': self.model.state_dict(),
+            'model_state_dict': model_to_save.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'best_val_loss': self.best_val_loss,
             'config': self.config
@@ -167,16 +270,71 @@ class Trainer:
         torch.save(checkpoint, filepath)
         print(f"Checkpoint saved: {filepath}")
         
+        # Check if we should upload to HuggingFace Hub
+        hf_hub_config = self.config.get('huggingface_hub', {})
+        upload_best_only = hf_hub_config.get('upload_best_only', False)
+        
         if is_best:
             best_path = self.checkpoint_dir / 'best_model.pt'
             torch.save(checkpoint, best_path)
             print(f"Best model saved: {best_path}")
+            
+            # Always upload best model if HF Hub is enabled
+            self._upload_to_hub(best_path, is_best=True)
+        elif not upload_best_only:
+            # Upload regular checkpoint only if upload_best_only is False
+            self._upload_to_hub(filepath, is_best=False)
+    
+    def _upload_to_hub(self, filepath, is_best=False):
+        """Upload checkpoint to HuggingFace Hub bucket."""
+        # Check if HF Hub upload is enabled
+        hf_hub_config = self.config.get('huggingface_hub', {})
+        if not hf_hub_config.get('enabled', False):
+            return
+        
+        try:
+            from huggingface_hub import HfApi
+            
+            api = HfApi()
+            repo_id = hf_hub_config.get('repo_id')
+            
+            if not repo_id:
+                print("⚠️  HuggingFace Hub repo_id not configured, skipping upload")
+                return
+            
+            # Determine remote path
+            if is_best:
+                path_in_repo = f"best_model_step_{self.global_step}.pt"
+            else:
+                path_in_repo = filepath.name
+            
+            print(f"📤 Uploading to HuggingFace Hub: {repo_id}/{path_in_repo}")
+            
+            # Upload file
+            api.upload_file(
+                path_or_fileobj=str(filepath),
+                path_in_repo=path_in_repo,
+                repo_id=repo_id,
+                repo_type="model",
+                commit_message=f"Upload checkpoint at step {self.global_step} (epoch {self.epoch})"
+            )
+            
+            print(f"✅ Uploaded to HuggingFace Hub: https://huggingface.co/{repo_id}/tree/main")
+            
+        except ImportError:
+            print("⚠️  huggingface_hub not installed. Install with: pip install huggingface_hub")
+        except Exception as e:
+            print(f"⚠️  Failed to upload to HuggingFace Hub: {e}")
+            print(f"   Continuing training...")
     
     def load_checkpoint(self, filepath):
         """Load training checkpoint."""
         checkpoint = torch.load(filepath, map_location=self.device)
         
-        self.model.load_state_dict(checkpoint['model_state_dict'])
+        # Handle DataParallel wrapper
+        model_to_load = self.model.module if hasattr(self.model, 'module') else self.model
+        model_to_load.load_state_dict(checkpoint['model_state_dict'])
+        
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.epoch = checkpoint['epoch']
         self.global_step = checkpoint['global_step']
@@ -197,14 +355,13 @@ class Trainer:
         total_loss = 0
         num_batches = 0
         
-        # Calculate how many batches to skip if resuming mid-epoch
+        # Calculate steps per epoch
         batches_per_step = self.config['training']['gradient_accumulation_steps']
-        start_batch = (self.global_step % (len(self.train_loader) // batches_per_step)) * batches_per_step
+        steps_per_epoch = len(self.train_loader) // batches_per_step
         
         pbar = tqdm(
             self.train_loader, 
-            desc=f"Epoch {self.epoch} (Step {self.global_step}/{self.config['training']['max_steps']})",
-            initial=start_batch,
+            desc=f"Epoch {self.epoch} | Step {self.global_step}/{self.config['training']['max_steps']}",
             total=len(self.train_loader)
         )
         
@@ -213,8 +370,31 @@ class Trainer:
             targets = targets.to(self.device)
             
             # Forward pass with mixed precision
-            with autocast(enabled=self.use_amp):
+            # Use version-compatible autocast
+            if self.use_amp:
+                device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+                try:
+                    # PyTorch 2.4+ API
+                    autocast_context = autocast(device_type=device_type, enabled=True)
+                except TypeError:
+                    # PyTorch 2.0-2.3 API (no device_type parameter)
+                    autocast_context = autocast(enabled=True)
+            else:
+                # No mixed precision - use dummy context
+                from contextlib import nullcontext
+                autocast_context = nullcontext()
+            
+            with autocast_context:
                 logits, loss = self.model(input_ids, targets)
+                
+                # Handle DataParallel: loss is a vector [num_gpus], need to reduce to scalar
+                if isinstance(loss, torch.Tensor) and loss.dim() > 0:
+                    loss = loss.mean()
+                
+                # Store the actual loss before scaling
+                actual_loss = loss.item()
+                
+                # Scale loss for gradient accumulation
                 loss = loss / self.config['training']['gradient_accumulation_steps']
             
             # Backward pass
@@ -248,43 +428,73 @@ class Trainer:
                 
                 self.global_step += 1
                 
+                # Calculate next milestones
+                next_log = ((self.global_step // self.config['training']['log_interval']) + 1) * self.config['training']['log_interval']
+                next_eval = ((self.global_step // self.config['training']['eval_interval']) + 1) * self.config['training']['eval_interval']
+                next_save = ((self.global_step // self.config['training']['save_interval']) + 1) * self.config['training']['save_interval']
+                
+                # Get current learning rate
+                lr = self.optimizer.param_groups[0]['lr']
+                
+                # Update progress bar with step info and actual loss
+                pbar.set_description(
+                    f"Epoch {self.epoch} | Step {self.global_step}/{self.config['training']['max_steps']} | "
+                    f"Loss: {actual_loss:.4f} | LR: {lr:.2e}"
+                )
+                
                 # Logging
                 if self.global_step % self.config['training']['log_interval'] == 0:
-                    lr = self.optimizer.param_groups[0]['lr']
                     self._log_metrics({
-                        'train/loss': loss.item() * self.config['training']['gradient_accumulation_steps'],
+                        'train/loss': actual_loss,
                         'train/lr': lr,
                         'train/step': self.global_step
                     })
+                    
+                    # Also print to console
+                    print(f"\n{'='*80}")
+                    print(f"Step {self.global_step}/{self.config['training']['max_steps']} | "
+                          f"Loss: {actual_loss:.4f} | "
+                          f"LR: {lr:.2e}")
+                    print(f"Next: Log@{next_log} | Eval@{next_eval} | Save@{next_save}")
+                    print(f"{'='*80}")
                 
                 # Validation
                 if self.global_step % self.config['training']['eval_interval'] == 0:
+                    print(f"\n{'='*80}")
+                    print(f"🔍 VALIDATION at step {self.global_step}")
+                    print(f"{'='*80}")
                     val_loss = self.validate()
                     self._log_metrics({'val/loss': val_loss})
+                    
+                    print(f"Validation loss: {val_loss:.4f}")
                     
                     # Save best model
                     if val_loss < self.best_val_loss:
                         self.best_val_loss = val_loss
+                        print(f"✅ New best validation loss! Saving best model...")
                         self.save_checkpoint(is_best=True)
+                    else:
+                        print(f"Current best: {self.best_val_loss:.4f}")
                     
                     self.model.train()
+                    print(f"{'='*80}\n")
                 
                 # Checkpointing
                 if self.global_step % self.config['training']['save_interval'] == 0:
+                    print(f"\n{'='*80}")
+                    print(f"💾 CHECKPOINT at step {self.global_step}")
+                    print(f"{'='*80}")
                     self.save_checkpoint(f'checkpoint_step_{self.global_step}.pt')
+                    print(f"✅ Checkpoint saved")
+                    print(f"{'='*80}\n")
                 
                 # Max steps check
                 if self.global_step >= self.config['training']['max_steps']:
                     avg_loss = total_loss / num_batches if num_batches > 0 else 0
                     return avg_loss
             
-            total_loss += loss.item()
+            total_loss += actual_loss
             num_batches += 1
-            
-            pbar.set_postfix({
-                'loss': f"{loss.item():.4f}",
-                'step': f"{self.global_step}/{self.config['training']['max_steps']}"
-            })
         
         return total_loss / num_batches if num_batches > 0 else 0
     
@@ -302,8 +512,26 @@ class Trainer:
             input_ids = input_ids.to(self.device)
             targets = targets.to(self.device)
             
-            with autocast(enabled=self.use_amp):
+            # Use version-compatible autocast
+            if self.use_amp:
+                device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+                try:
+                    # PyTorch 2.4+ API
+                    autocast_context = autocast(device_type=device_type, enabled=True)
+                except TypeError:
+                    # PyTorch 2.0-2.3 API (no device_type parameter)
+                    autocast_context = autocast(enabled=True)
+            else:
+                # No mixed precision - use dummy context
+                from contextlib import nullcontext
+                autocast_context = nullcontext()
+            
+            with autocast_context:
                 logits, loss = self.model(input_ids, targets)
+            
+            # Handle DataParallel: loss is a vector [num_gpus], need to reduce to scalar
+            if isinstance(loss, torch.Tensor) and loss.dim() > 0:
+                loss = loss.mean()
             
             total_loss += loss.item()
             num_batches += 1
@@ -321,7 +549,10 @@ class Trainer:
         from .data import get_sample_prompts
         from .tokenizer_utils import encode_to_tensor, decode_from_tensor
         
-        self.model.eval()
+        # Get the actual model (unwrap DataParallel if needed)
+        model_for_generation = self.model.module if hasattr(self.model, 'module') else self.model
+        model_for_generation.eval()
+        
         prompts = get_sample_prompts()
         
         print("\n" + "="*80)
@@ -333,7 +564,7 @@ class Trainer:
             input_ids = encode_to_tensor(self.tokenizer, prompt, self.device)
             
             # Generate
-            output_ids = self.model.generate(
+            output_ids = model_for_generation.generate(
                 input_ids,
                 max_new_tokens=self.config['generation']['max_new_tokens'],
                 temperature=self.config['generation']['temperature'],

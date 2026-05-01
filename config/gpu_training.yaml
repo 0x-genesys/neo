@@ -10,6 +10,7 @@ model:
   context_length: 256  # Keep same for now
   dropout: 0.1
   use_flash_attention: false
+  use_gradient_checkpointing: false  # Not needed for 16M model (optional for memory savings)
 
 # Training Configuration
 training:

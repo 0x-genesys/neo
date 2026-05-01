@@ -1,0 +1,224 @@
+# GPU Training Configuration - 124M Parameter Model
+# Scaled up from 16M following symmetric growth principles
+# Optimized for T4/V100 GPU (16GB VRAM) with Chinchilla-optimal data scaling
+#
+# SCALING APPLIED:
+# A. Depth (num_layers): 4 → 12 (3x) - More reasoning steps
+# B. Width (d_model): 256 → 768 (3x) - GPT-2 Small standard, quadratic param growth
+# C. Vocabulary (vocab_size): 50,257 (same) - GPT-2 tokenizer (works out of box)
+#
+# RESULT: ~124M parameters (7.75x larger than 16M base model)
+# NOTE: To use 100k vocab (GPT-4 tokenizer), install tiktoken and change tokenizer type
+#
+# CHINCHILLA SCALING:
+# - Model params: 124M
+# - Optimal tokens: 124M × 20 = 2.48B tokens
+# - Dataset: OpenWebText (8B tokens available)
+# - Training: ~0.3 epochs through OpenWebText (2.6× Chinchilla optimal)
+# - Expected quality: Significantly better than 16M model, approaching GPT-2 Small
+
+model:
+  vocab_size: 100277  # GPT-4 tokenizer - will be set by tokenizer
+  d_model: 768        # 3x increase from 256 (GPT-2 Small standard)
+  num_heads: 12       # Maintains head_dim = 768/12 = 64 (optimal)
+  num_layers: 12      # 3x increase from 4 (more reasoning depth)
+  context_length: 512 # 2x increase from 256 (longer context understanding)
+  dropout: 0.1
+  use_flash_attention: false
+  use_gradient_checkpointing: true  # Enable to save memory (trades compute for memory)
+
+# Training Configuration
+training:
+  batch_size: 16      # Reduced from 32 due to larger model (GPU memory constraint)
+  gradient_accumulation_steps: 8  # Increased to maintain effective batch = 128
+  max_epochs: 1       # Single pass through dataset (Chinchilla-optimal)
+  max_steps: 100000   # 2x more than 16M model (larger model needs more steps)
+  learning_rate: 2.5e-4  # Slightly lower for larger model stability
+  weight_decay: 0.1   # Increased from 0.01 for better regularization
+  warmup_steps: 2000  # 2% of total steps (standard for large models)
+  max_grad_norm: 1.0
+  eval_interval: 1000  # Less frequent validation (larger model is slower)
+  save_interval: 2000  # Save every 2000 steps
+  log_interval: 10
+
+# Data Configuration
+data:
+  dataset_name: "openwebtext"  # 8B tokens (vs wikitext-103's 100M)
+  dataset_config: null  # openwebtext has no config
+  train_split: "train" 
+  val_split: "train"  # openwebtext has no validation split, use train subset
+  test_split: "train"
+  max_length: 512     # Match context_length
+  num_workers: 4      # Multi-threaded data loading for GPU
+  pin_memory: true    # Faster GPU transfer
+  
+# Tokenizer Configuration
+tokenizer:
+  type: "Xenova/gpt-4"  # GPT-4 tokenizer (100k vocab) - tiktoken required
+  vocab_size: 100277    # Will be set automatically by tokenizer
+  
+# Optimization
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]  # Standard for transformers
+  eps: 1.0e-8
+
+scheduler:
+  type: "cosine"
+  min_lr: 2.5e-5  # 10% of max learning rate
+
+# System Configuration
+system:
+  device: "cuda"  # Force CUDA
+  mixed_precision: true  # Essential for 117M model (2x speedup, 2x memory savings)
+  compile_model: false  # Can enable for PyTorch 2.0+ (20% speedup)
+  seed: 42
+  
+# Checkpointing
+checkpoint:
+  save_dir: "checkpoints/gpu_training_117m"
+  resume_from: null
+  save_best_only: false
+  
+# Logging
+logging:
+  use_wandb: false
+  wandb_project: "transformer-117m"
+  wandb_entity: null
+  log_dir: "logs/gpu_training_117m"
+  
+# Generation (for validation)
+generation:
+  max_new_tokens: 100
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  num_samples: 3
+
+# ============================================================================
+# SCALING ANALYSIS
+# ============================================================================
+#
+# PARAMETER BREAKDOWN:
+# -------------------
+# Token Embedding:     50,257 × 768 = 38.6M params
+# Position Embedding:  512 × 768 = 0.4M params
+# 
+# Per Transformer Block (×12):
+#   - Attention QKV:   768 × 2,304 = 1.77M
+#   - Attention Proj:  768 × 768 = 0.59M
+#   - FFN Up:          768 × 3,072 = 2.36M
+#   - FFN Down:        3,072 × 768 = 2.36M
+#   - Layer Norms:     ~0.01M
+#   Total per block:   ~7.1M params
+# 
+# 12 Blocks:           12 × 7.1M = 85.2M params
+# LM Head:             Shared with token embedding (weight tying)
+# 
+# TOTAL MODEL:         ~124M parameters (close to GPT-2 Small's 117M)
+#
+# ============================================================================
+# CHINCHILLA SCALING LAW
+# ============================================================================
+#
+# Rule: Train with 20 tokens per parameter for optimal performance
+#
+# Model params:        124M
+# Optimal tokens:      124M × 20 = 2.48B tokens
+# 
+# Dataset options:
+#   1. wikitext-103:   100M tokens (need 25 epochs) ❌ Too repetitive
+#   2. openwebtext:    8B tokens (0.3 epochs) ✅ RECOMMENDED
+#   3. The Pile:       800B tokens (0.003 epochs) ✅ Ideal but very large
+#
+# With openwebtext (8B tokens):
+#   - Tokens per step: 16 × 512 × 8 = 65,536 tokens
+#   - Steps for 2.48B: 2.48B / 65,536 = 37,800 steps
+#   - We use 100K steps for better convergence (6.5B tokens, 2.6× Chinchilla)
+#
+# ============================================================================
+# GPU MEMORY ANALYSIS (T4 16GB)
+# ============================================================================
+#
+# Model weights:       124M × 2 bytes (FP16) = 248MB
+# Optimizer states:    124M × 8 bytes (Adam) = 992MB
+# Gradients:           124M × 2 bytes = 248MB
+# Activations (batch): ~2GB (batch_size=16, context=512)
+# 
+# Total:               ~3.5GB (leaves 12.5GB headroom)
+# GPU Utilization:     60-70% (optimal)
+#
+# If OOM occurs:
+#   - Reduce batch_size to 12 or 8
+#   - Reduce context_length to 256
+#   - Increase gradient_accumulation_steps to maintain effective batch
+#
+# ============================================================================
+# EXPECTED RESULTS
+# ============================================================================
+#
+# Training time (T4 GPU):
+#   - Steps per second: ~0.3-0.5 (slower than 16M model)
+#   - Total time: 100,000 × 2s = 200,000s ≈ 55 hours
+#   - Realistic: 2-3 days with validation/checkpointing
+#
+# Loss progression:
+#   Step 10,000:  loss ~2.5
+#   Step 30,000:  loss ~1.8
+#   Step 50,000:  loss ~1.4
+#   Step 100,000: loss ~1.0-1.2 (target)
+#
+# Generation quality:
+#   - Much more coherent than 16M model
+#   - Better long-range dependencies (512 context)
+#   - More diverse vocabulary (100k tokens)
+#   - Approaching GPT-2 Small quality
+#
+# ============================================================================
+# COMPARISON WITH BASE MODEL
+# ============================================================================
+#
+# Metric               16M Model    117M Model    Improvement
+# --------------------------------------------------------------------
+# Parameters           16M          124M          7.75×
+# Depth (layers)       4            12            3×
+# Width (d_model)      256          768           3×
+# Context length       256          512           2×
+# Vocabulary           50k          50k           1× (same tokenizer)
+# Training tokens      1.6B         6.5B          4×
+# Training time        3 hours      55 hours      18×
+# Expected loss        0.3          1.0-1.2       Better perplexity
+# Generation quality   Good         Excellent     Significant
+#
+# ============================================================================
+# USAGE
+# ============================================================================
+#
+# 1. Start training:
+#    python train.py --config config/gpu_training_117m.yaml
+#
+# 2. Monitor GPU:
+#    nvidia-smi -l 1
+#
+# 3. Monitor training:
+#    tensorboard --logdir logs/gpu_training_117m
+#
+# 4. Test generation (after 20K+ steps):
+#    python src/inference.py \
+#      --model checkpoints/gpu_training_117m/best_model.pt \
+#      --prompt "The future of artificial intelligence" \
+#      --max-tokens 200
+#
+# ============================================================================
+# NOTES
+# ============================================================================
+#
+# 1. NO CODE CHANGES NEEDED - all parameters are config-driven
+# 2. GPT-4 tokenizer will be downloaded automatically from HuggingFace
+# 3. OpenWebText dataset will be downloaded automatically (~12GB)
+# 4. Training is LONG (2-3 days) but checkpoints are saved every 2000 steps
+# 5. Can resume training from checkpoint if interrupted
+# 6. Mixed precision is ESSENTIAL (without it, model won't fit in 16GB)
+# 7. This is a production-quality model suitable for real applications
+#
+# ============================================================================

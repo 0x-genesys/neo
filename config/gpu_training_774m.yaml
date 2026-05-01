@@ -1,0 +1,96 @@
+# GPU Training Configuration - 774M Parameter Model (GPT-2 Large)
+# Large-scale model for high-quality generation
+# Optimized for A100 GPU (80GB VRAM) or 2x A100 (40GB)
+
+model:
+  vocab_size: 100277  # GPT-4 tokenizer
+  d_model: 1280        # GPT-2 Large standard
+  num_heads: 20        # head_dim = 1280/20 = 64
+  num_layers: 36       # 3x GPT-2 Small
+  context_length: 2048
+  dropout: 0.1
+  use_gradient_checkpointing: true  # Required
+
+# Training Configuration
+training:
+  batch_size: 4        # Reduced due to larger model
+  gradient_accumulation_steps: 32  # Effective batch = 128
+  max_epochs: 1
+  max_steps: 300000    # More steps for better convergence
+  learning_rate: 1.5e-4  # Lower for stability
+  weight_decay: 0.1
+  warmup_steps: 8000   # ~2.5% of total steps
+  max_grad_norm: 1.0
+  eval_interval: 3000
+  save_interval: 10000
+  log_interval: 10
+
+# Data Configuration
+data:
+  dataset_name: "c4"   # Larger dataset (300B+ tokens)
+  dataset_config: "en"
+  train_split: "train"
+  val_split: "validation"
+  test_split: "validation"
+  max_length: 2048
+  num_workers: 4
+  pin_memory: true
+
+# Tokenizer Configuration
+tokenizer:
+  type: "Xenova/gpt-4"  # GPT-4 tokenizer (100k vocab)
+  vocab_size: 100277
+
+# Optimization
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  type: "cosine_with_warmup"
+  min_lr: 1.5e-5
+
+# System Configuration
+system:
+  device: "cuda"
+  mixed_precision: true  # Essential
+  compile_model: true
+  seed: 42
+
+# Checkpointing
+checkpoint:
+  save_dir: "checkpoints/gpu_training_774m"
+  resume_from: null
+  save_best_only: false
+
+# Logging
+logging:
+  use_wandb: false
+  wandb_project: "transformer-774m"
+  wandb_entity: null
+  log_dir: "logs/gpu_training_774m"
+
+# Generation
+generation:
+  max_new_tokens: 200
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  num_samples: 3
+
+# ============================================================================
+# MODEL SPECIFICATIONS
+# ============================================================================
+# Parameters: ~774M
+# Architecture: GPT-2 Large
+# Memory (FP16): ~24GB (model + optimizer + activations)
+# GPU Required: A100 80GB or 2x A100 40GB
+# Training Time: 1-2 weeks on A100
+# Dataset: C4 (300B+ tokens available)
+# Chinchilla Optimal: 774M × 20 = 15.5B tokens
+# Actual Training: 300K steps × 4 × 2048 × 32 = 78B tokens (5× optimal)
+# Expected Loss: ~0.7-0.9
+# Quality: Excellent for most tasks
+# Cost: ~$1000-2000 on cloud GPU
+# ============================================================================
