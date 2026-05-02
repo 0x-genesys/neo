@@ -312,6 +312,18 @@ class ChatGenerator:
             print(generated_text)
             print(f"{'='*80}\n")
         
+        # Clean up repetitive patterns (model sometimes generates multiple assistant turns)
+        # Keep only the first complete response
+        assistant_tag = f"{SPECIAL_TOKENS['im_start']}{SPECIAL_TOKENS['assistant']}\n"
+        if generated_text.count(assistant_tag) > 1:
+            # Multiple assistant turns - keep only the first one
+            parts = generated_text.split(assistant_tag)
+            # Reconstruct with only first assistant turn
+            generated_text = assistant_tag.join(parts[:2])
+            if debug:
+                print(f"⚠️  Detected multiple assistant turns, keeping only first")
+                print(f"   Cleaned text: {generated_text[-200:]}")
+        
         # Extract thought block
         thought_start = f"{SPECIAL_TOKENS['im_start']}{SPECIAL_TOKENS['thought']}\n"
         thought_end = f"{SPECIAL_TOKENS['im_end']}"
@@ -341,19 +353,49 @@ class ChatGenerator:
                 result['response'] = assistant_section.strip()
         else:
             # FALLBACK: Model didn't generate assistant tag
+            # This shouldn't happen with proper fine-tuning, but handle it gracefully
+            if debug:
+                print(f"⚠️  No assistant tag found in generated text")
+            
             # Check if there's content after thought block
             if result['thought'] and thought_end in generated_text:
                 # Take everything after thought end as response
                 after_thought = generated_text.split(thought_end, 1)[1].strip()
                 if after_thought:
-                    result['response'] = after_thought
+                    # Remove any remaining tags
+                    after_thought = after_thought.replace(SPECIAL_TOKENS['im_start'], '')
+                    after_thought = after_thought.replace(SPECIAL_TOKENS['im_end'], '')
+                    after_thought = after_thought.replace(SPECIAL_TOKENS['assistant'], '')
+                    after_thought = after_thought.replace(SPECIAL_TOKENS['user'], '')
+                    after_thought = after_thought.replace(SPECIAL_TOKENS['system'], '')
+                    after_thought = after_thought.replace(SPECIAL_TOKENS['thought'], '')
+                    result['response'] = after_thought.strip()
             elif not result['thought']:
                 # No thought, no assistant tag - use everything after user message
                 user_end = f"{SPECIAL_TOKENS['im_end']}"
                 if user_end in generated_text:
                     parts = generated_text.split(user_end)
                     if len(parts) > 2:  # System, User, then response
-                        result['response'] = parts[-1].strip()
+                        response_part = parts[-1].strip()
+                        # Clean up tags
+                        response_part = response_part.replace(SPECIAL_TOKENS['im_start'], '')
+                        response_part = response_part.replace(SPECIAL_TOKENS['im_end'], '')
+                        response_part = response_part.replace(SPECIAL_TOKENS['assistant'], '')
+                        response_part = response_part.replace(SPECIAL_TOKENS['user'], '')
+                        response_part = response_part.replace(SPECIAL_TOKENS['system'], '')
+                        response_part = response_part.replace(SPECIAL_TOKENS['thought'], '')
+                        result['response'] = response_part.strip()
+        
+        # Final cleanup: remove any remaining special tokens from response
+        if result['response']:
+            for token_name, token_value in SPECIAL_TOKENS.items():
+                result['response'] = result['response'].replace(token_value, '')
+            result['response'] = result['response'].strip()
+        
+        if debug:
+            print(f"\n🔍 DEBUG - Parsed Result:")
+            print(f"   Thought: {result['thought'][:100] if result['thought'] else 'None'}...")
+            print(f"   Response: {result['response'][:100] if result['response'] else 'None'}...")
         
         return result
     
@@ -365,6 +407,7 @@ class ChatGenerator:
         temperature: float = 0.7,
         top_k: int = 50,
         top_p: float = 0.9,
+        stop_sequences: list = None,
     ) -> torch.Tensor:
         """
         Custom generation loop that ensures LoRA weights are applied.
@@ -378,6 +421,7 @@ class ChatGenerator:
             temperature: Sampling temperature (higher = more random)
             top_k: Keep only top k tokens for sampling
             top_p: Nucleus sampling threshold
+            stop_sequences: List of token sequences that trigger early stopping
             
         Returns:
             Generated token indices (B, T + max_new_tokens)
@@ -387,7 +431,22 @@ class ChatGenerator:
         # Get context length from model config
         max_context = self.model.config.max_position_embeddings
         
-        for _ in range(max_new_tokens):
+        # Prepare stop sequences (tokenized)
+        if stop_sequences is None:
+            # Default stop sequences for chat format
+            stop_sequences = [
+                SPECIAL_TOKENS['im_end'],  # End of message
+                '<|im_end|><|im_start|>assistant',  # Prevent multiple assistant turns
+            ]
+        
+        # Tokenize stop sequences
+        stop_token_ids = []
+        for seq in stop_sequences:
+            tokens = self.tokenizer.encode(seq)
+            if tokens:
+                stop_token_ids.append(tokens)
+        
+        for step in range(max_new_tokens):
             # Crop context if needed to fit within model's context window
             idx_cond = idx if idx.size(1) <= max_context else idx[:, -max_context:]
             
@@ -424,6 +483,27 @@ class ChatGenerator:
             
             # Append to sequence
             idx = torch.cat((idx, idx_next), dim=1)
+            
+            # Check for stop sequences
+            # Convert recent tokens to text and check if any stop sequence appears
+            if stop_token_ids:
+                # Get the last N tokens where N is the max length of stop sequences
+                max_stop_len = max(len(seq) for seq in stop_token_ids)
+                recent_tokens = idx[0, -max_stop_len:].tolist()
+                
+                # Check if any stop sequence matches the end of recent tokens
+                for stop_seq in stop_token_ids:
+                    if len(recent_tokens) >= len(stop_seq):
+                        if recent_tokens[-len(stop_seq):] == stop_seq:
+                            # Found stop sequence, stop generating
+                            return idx
+                
+                # Also check by decoding (more reliable for multi-token sequences)
+                recent_text = self.tokenizer.decode(recent_tokens)
+                for stop_str in stop_sequences:
+                    if stop_str in recent_text:
+                        # Found stop sequence, stop generating
+                        return idx
         
         return idx
     
