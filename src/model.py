@@ -247,12 +247,20 @@ class DecoderOnlyTransformer(nn.Module):
         # Calculate loss if targets provided
         loss = None
         if targets is not None:
-            # Flatten batch and time dimensions for cross-entropy;
-            # ignore_index=-100 is the standard for HuggingFace (matches our labels)
+            # Determine ignore_index based on what values are in targets
+            # Base training: no padding, no ignore needed (but -1 works fine)
+            # Finetuning: uses -100 for padding (HuggingFace standard)
+            # We check if -100 exists in targets to auto-detect
+            if (targets == -100).any():
+                ignore_index = -100  # Finetuning mode
+            else:
+                ignore_index = -1  # Base training mode (no padding to ignore)
+            
+            # Flatten batch and time dimensions for cross-entropy
             loss = F.cross_entropy(
                 logits.view(-1, logits.size(-1)),
                 targets.view(-1),
-                ignore_index=-100
+                ignore_index=ignore_index
             )
         
         return logits, loss
