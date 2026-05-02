@@ -5,12 +5,13 @@ Supports NVIDIA CUDA and Apple MPS with Mixed Precision (FP16).
 import torch
 import sys
 import argparse
+import yaml
 from pathlib import Path
 
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from src.model import DecoderOnlyTransformer
+from src.model import create_model
 from src.tokenizer_utils import load_tokenizer
 from src.finetuning.base_trainer import LoRAFineTuner, SYSTEM_PROMPT
 from src.finetuning.data_utils import create_cot_dataset, prepare_tokenizer
@@ -47,6 +48,8 @@ def main():
     parser = argparse.ArgumentParser(description='GPU Fine-Tuning for 117M Transformer with LoRA + CoT')
     
     # Model arguments
+    parser.add_argument('--config', type=str, default='config/auto_training_117m_balanced.yaml',
+                        help='Path to model config YAML file')
     parser.add_argument('--model', type=str, default='checkpoints/best_model.pt',
                         help='Path to local pre-trained model checkpoint')
     parser.add_argument('--model-remote', type=str, default=None,
@@ -91,18 +94,38 @@ def main():
     print("="*80 + "\n")
     
     # ============================================================================
-    # Configuration
+    # Load Configuration from YAML
     # ============================================================================
     
-    # Model configuration (117M parameters)
-    MODEL_CONFIG = {
-        'vocab_size': 100277,  # tiktoken vocabulary
-        'd_model': 768,
-        'num_heads': 12,
-        'num_layers': 12,
-        'context_length': 512,
-        'dropout': 0.1,
-    }
+    config_path = Path(args.config)
+    if not config_path.exists():
+        print(f"❌ Config file not found: {config_path}")
+        print(f"   Using default 117M configuration")
+        config = {
+            'model': {
+                'vocab_size': 100277,
+                'd_model': 768,
+                'num_heads': 12,
+                'num_layers': 12,
+                'context_length': 512,
+                'dropout': 0.1,
+            }
+        }
+    else:
+        print(f"📄 Loading config from: {config_path}")
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        print(f"✅ Config loaded successfully")
+    
+    # Extract model config
+    MODEL_CONFIG = config['model']
+    print(f"\n📊 Model Configuration:")
+    print(f"   Vocabulary: {MODEL_CONFIG['vocab_size']:,}")
+    print(f"   Dimensions: {MODEL_CONFIG['d_model']}")
+    print(f"   Heads: {MODEL_CONFIG['num_heads']}")
+    print(f"   Layers: {MODEL_CONFIG['num_layers']}")
+    print(f"   Context: {MODEL_CONFIG['context_length']}")
+    print(f"   Dropout: {MODEL_CONFIG['dropout']}")
     
     # Training configuration
     TRAIN_CONFIG = {
@@ -129,7 +152,7 @@ def main():
     DATA_CONFIG = {
         'train_path': args.train_data,
         'val_path': args.val_data,
-        'max_length': 512,
+        'max_length': MODEL_CONFIG['context_length'],
     }
     
     # Checkpoint paths
@@ -185,15 +208,8 @@ def main():
     print("🔧 Loading Pre-trained Model")
     print("="*80)
     
-    # Create model
-    model = DecoderOnlyTransformer(
-        vocab_size=MODEL_CONFIG['vocab_size'],
-        d_model=MODEL_CONFIG['d_model'],
-        num_heads=MODEL_CONFIG['num_heads'],
-        num_layers=MODEL_CONFIG['num_layers'],
-        context_length=MODEL_CONFIG['context_length'],
-        dropout=MODEL_CONFIG['dropout'],
-    )
+    # Create model using the factory function from model.py
+    model = create_model(config)
     
     # Determine checkpoint path (local or remote)
     if args.model_remote:
@@ -299,10 +315,16 @@ def main():
     print("="*80)
     print(f"\n📁 Model saved to: {CHECKPOINT_CONFIG['output_dir']}")
     print(f"\n🚀 To use the fine-tuned model:")
-    print(f"   1. Load base model: model = DecoderOnlyTransformer(...)")
-    print(f"   2. Load LoRA weights: from peft import PeftModel")
-    print(f"   3. model = PeftModel.from_pretrained(model, '{CHECKPOINT_CONFIG['output_dir']}/best_model')")
-    print(f"   4. Generate: model.generate(...)")
+    print(f"   1. Load base model:")
+    print(f"      from src.model import create_model")
+    print(f"      import yaml")
+    print(f"      with open('{args.config}', 'r') as f:")
+    print(f"          config = yaml.safe_load(f)")
+    print(f"      model = create_model(config)")
+    print(f"   2. Load LoRA weights:")
+    print(f"      from peft import PeftModel")
+    print(f"      model = PeftModel.from_pretrained(model, '{CHECKPOINT_CONFIG['output_dir']}/best_model')")
+    print(f"   3. Generate: model.generate(...)")
     print("="*80 + "\n")
 
 

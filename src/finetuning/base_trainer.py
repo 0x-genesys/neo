@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from transformers import get_cosine_schedule_with_warmup
-from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
+from peft import LoraConfig, get_peft_model, TaskType
 from tqdm import tqdm
 import os
 import json
@@ -162,27 +162,23 @@ class LoRAFineTuner:
         """
         Apply LoRA to the model.
         
-        Target modules: All linear layers in attention and MLP
-        - Attention: q_proj, k_proj, v_proj, o_proj (c_attn, c_proj in our architecture)
-        - MLP: gate_proj, up_proj, down_proj (net.0, net.2 in our architecture)
+        Target modules: Specific linear layers in attention and output
+        - Attention: c_attn (combined QKV), c_proj (output projection)
+        - Output: lm_head (language model head)
+        
+        Note: We avoid targeting MLP layers with numeric names ('0', '2') as they
+        can cause PEFT to incorrectly match parent modules.
         """
         print("\n" + "="*80)
         print("🔧 Applying LoRA Configuration")
         print("="*80)
         
-        # Identify target modules based on our model architecture
-        # Our model uses: c_attn (combined QKV), c_proj (output), and MLP layers
-        target_modules = []
-        
-        # Scan model for linear layers
-        for name, module in self.model.named_modules():
-            if isinstance(module, nn.Linear):
-                # Extract the last part of the name
-                module_name = name.split('.')[-1]
-                if module_name not in target_modules:
-                    target_modules.append(module_name)
+        # Target only the attention and output projection layers
+        # Avoid numeric module names which can cause PEFT matching issues
+        target_modules = ["c_attn", "c_proj", "lm_head"]
         
         print(f"Target modules identified: {target_modules}")
+        print(f"Note: Targeting attention and output layers only to avoid PEFT matching issues")
         
         # Configure LoRA
         lora_config = LoraConfig(
@@ -192,6 +188,7 @@ class LoRAFineTuner:
             lora_dropout=self.lora_dropout,
             bias="none",
             task_type=TaskType.CAUSAL_LM,
+            modules_to_save=None,  # Don't save any additional modules
         )
         
         # Apply LoRA

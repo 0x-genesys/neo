@@ -14,7 +14,7 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from src.model import DecoderOnlyTransformer
+from src.model import create_model
 from src.tokenizer_utils import load_tokenizer
 from src.finetuning.base_trainer import SYSTEM_PROMPT
 from src.finetuning.data_utils import SPECIAL_TOKENS
@@ -127,15 +127,8 @@ class ChatGenerator:
         print(f"\n🔧 Creating model...")
         print(f"   Architecture: {model_config['num_layers']} layers, {model_config['d_model']} dim")
         
-        # Create base model
-        self.model = DecoderOnlyTransformer(
-            vocab_size=model_config['vocab_size'],
-            d_model=model_config['d_model'],
-            num_heads=model_config['num_heads'],
-            num_layers=model_config['num_layers'],
-            context_length=model_config['context_length'],
-            dropout=model_config['dropout'],
-        )
+        # Create base model using factory function
+        self.model = create_model(self.config)
         
         # Load base weights
         if 'model_state_dict' in checkpoint:
