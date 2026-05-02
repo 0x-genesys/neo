@@ -80,12 +80,20 @@ def main():
                         help='Checkpoint filename from HuggingFace Hub to resume from')
     
     # Upload arguments
-    parser.add_argument('--upload', action='store_true',
-                        help='Upload best model to HuggingFace Hub')
+    parser.add_argument('--upload', action='store_true', default=True,
+                        help='Upload best model to HuggingFace Hub (default: True)')
+    parser.add_argument('--no-upload', dest='upload', action='store_false',
+                        help='Disable upload to HuggingFace Hub')
     parser.add_argument('--upload-repo', type=str, default='0x-genesys/neo_weights_checkpoints',
                         help='HuggingFace repository for upload')
     parser.add_argument('--upload-path', type=str, default='finetune/',
                         help='Path prefix in repository (e.g., "finetune/")')
+    
+    # Evaluation arguments
+    parser.add_argument('--eval-steps', type=int, default=None,
+                        help='Evaluate every N steps (default: 1000 or once per epoch, whichever is smaller)')
+    parser.add_argument('--save-steps', type=int, default=1000,
+                        help='Save checkpoint every N steps (default: 1000)')
     
     args = parser.parse_args()
     
@@ -127,6 +135,11 @@ def main():
     print(f"   Context: {MODEL_CONFIG['context_length']}")
     print(f"   Dropout: {MODEL_CONFIG['dropout']}")
     
+    # Calculate smart eval_steps default: 1000 or once per epoch, whichever is smaller
+    # We'll calculate this after loading the dataset
+    eval_steps_arg = args.eval_steps
+    save_steps_arg = args.save_steps
+    
     # Training configuration
     TRAIN_CONFIG = {
         'batch_size': args.batch_size,
@@ -137,8 +150,8 @@ def main():
         'warmup_ratio': 0.1,  # 10% warmup
         'max_grad_norm': 1.0,
         'logging_steps': 10,
-        'eval_steps': 100,
-        'save_steps': 500,
+        'eval_steps': 1000,  # Will be updated after loading dataset
+        'save_steps': save_steps_arg,
     }
     
     # LoRA configuration
@@ -301,6 +314,20 @@ def main():
         max_length=DATA_CONFIG['max_length'],
         system_prompt=SYSTEM_PROMPT,
     )
+    
+    # Calculate smart eval_steps: 1000 or once per epoch, whichever is smaller
+    steps_per_epoch = len(train_dataset) // (TRAIN_CONFIG['batch_size'] * TRAIN_CONFIG['gradient_accumulation_steps'])
+    if eval_steps_arg is not None:
+        # User specified eval_steps
+        TRAIN_CONFIG['eval_steps'] = eval_steps_arg
+    else:
+        # Smart default: min(1000, steps_per_epoch)
+        TRAIN_CONFIG['eval_steps'] = min(1000, max(steps_per_epoch, 1))
+    
+    print(f"\n📊 Training Schedule:")
+    print(f"   Steps per epoch: {steps_per_epoch}")
+    print(f"   Evaluate every: {TRAIN_CONFIG['eval_steps']} steps")
+    print(f"   Save checkpoint every: {TRAIN_CONFIG['save_steps']} steps")
     
     # ============================================================================
     # Initialize Trainer

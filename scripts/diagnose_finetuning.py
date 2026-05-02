@@ -12,7 +12,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from src.model import create_model
 from src.tokenizer_utils import load_tokenizer
-from src.finetuning.data_utils import create_cot_dataset, prepare_tokenizer
+from src.finetuning.data_utils import create_cot_dataset, prepare_tokenizer, SPECIAL_TOKENS
 
 # System prompt for CoT
 SYSTEM_PROMPT = """You are a helpful, creative, and clever AI assistant. When a user asks a question, provide a clear and concise answer. If the question involves logic, think through it step-by-step using a 'thought' block. If the user asks for code, provide clean examples in Markdown. Admit if you are unsure of a fact."""
@@ -39,6 +39,23 @@ def main():
     model = create_model(config)
     print(f"   Model vocab size: {config['model']['vocab_size']}")
     print(f"   Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+    
+    # Load pre-trained weights
+    checkpoint_path = Path("checkpoints/best_model.pt")
+    if checkpoint_path.exists():
+        print(f"\n   Loading pre-trained checkpoint: {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        
+        if 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+            print(f"   ✅ Loaded pre-trained weights (loss: {checkpoint.get('best_val_loss', 'N/A')})")
+        else:
+            model.load_state_dict(checkpoint)
+            print(f"   ✅ Loaded pre-trained weights")
+    else:
+        print(f"\n   ⚠️  No pre-trained checkpoint found at {checkpoint_path}")
+        print(f"   Testing with random initialization (loss will be ~11-12)")
+        print(f"   For accurate diagnosis, train base model first with train.py")
     
     # Load a small sample of data
     print("\n3️⃣  Loading data sample...")
@@ -94,12 +111,22 @@ def main():
             print(f"   Logits shape: {logits.shape}")
             print(f"   Loss: {loss.item():.4f}")
             
-            if loss.item() > 8.0:
+            # Check if pre-trained weights were loaded
+            if not checkpoint_path.exists():
+                print(f"\n   ℹ️  Loss is high because model is randomly initialized")
+                print(f"      This is expected without pre-trained weights")
+                print(f"      Train base model first: python train.py --config config/auto_training_117m_balanced.yaml")
+            elif loss.item() > 8.0:
                 print(f"\n   ⚠️  WARNING: Loss is very high ({loss.item():.4f})!")
                 print(f"      Expected: ~2-3 for pre-trained model")
-                print(f"      This suggests a problem with data or model setup")
+                print(f"      Possible causes:")
+                print(f"      1. Causal shift not applied correctly")
+                print(f"      2. Label masking issue")
+                print(f"      3. Token ID overflow")
+                print(f"      4. LoRA initialization problem")
             elif loss.item() < 5.0:
                 print(f"   ✅ Loss looks reasonable for pre-trained model")
+                print(f"      Fine-tuning should start from this baseline")
         except Exception as e:
             print(f"   ❌ Forward pass failed: {e}")
             import traceback

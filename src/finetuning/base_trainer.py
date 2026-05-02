@@ -44,15 +44,15 @@ class LoRAFineTuner:
         warmup_ratio: float = 0.1,
         max_grad_norm: float = 1.0,
         logging_steps: int = 10,
-        eval_steps: int = 100,
-        save_steps: int = 500,
+        eval_steps: int = 1000,
+        save_steps: int = 1000,
         device: str = "auto",
         use_amp: bool = True,
         lora_r: int = 16,
         lora_alpha: int = 32,
         lora_dropout: float = 0.1,
         resume_from_checkpoint: str = None,
-        upload_to_hub: bool = False,
+        upload_to_hub: bool = True,
         hub_repo_id: str = "0x-genesys/neo_weights_checkpoints",
         hub_path_prefix: str = "finetune/",
     ):
@@ -520,7 +520,8 @@ class LoRAFineTuner:
         total_loss = 0
         num_batches = 0
         
-        for batch in tqdm(self.val_loader, desc="Evaluating"):
+        # Use leave=False to prevent multiple progress bars cluttering output
+        for batch in tqdm(self.val_loader, desc="Evaluating", leave=False):
             input_ids = batch['input_ids'].to(self.device)
             attention_mask = batch['attention_mask'].to(self.device)
             labels = batch['labels'].to(self.device)
