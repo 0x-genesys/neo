@@ -210,23 +210,22 @@ class LoRAFineTuner:
         """
         Apply LoRA to the model.
         
-        Target modules: Specific linear layers in attention and output
+        Target modules: Linear layers in attention, MLP, and output
         - Attention: c_attn (combined QKV), c_proj (output projection)
+        - MLP: net.0 (first linear), net.2 (second linear)
         - Output: lm_head (language model head)
         
-        Note: We avoid targeting MLP layers with numeric names ('0', '2') as they
-        can cause PEFT to incorrectly match parent modules.
+        Including MLP layers allows the model to learn better reasoning patterns.
         """
         print("\n" + "="*80)
         print("🔧 Applying LoRA Configuration")
         print("="*80)
         
-        # Target only the attention and output projection layers
-        # Avoid numeric module names which can cause PEFT matching issues
-        target_modules = ["c_attn", "c_proj", "lm_head"]
+        # Target attention, MLP, and output layers
+        target_modules = ["c_attn", "c_proj", "net.0", "net.2", "lm_head"]
         
         print(f"Target modules identified: {target_modules}")
-        print(f"Note: Targeting attention and output layers only to avoid PEFT matching issues")
+        print(f"Note: Including MLP layers (net.0, net.2) for better reasoning capability")
         
         # Configure LoRA
         lora_config = LoraConfig(

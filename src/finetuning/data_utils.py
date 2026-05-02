@@ -95,6 +95,8 @@ class CoTDataset(Dataset):
         Supports two formats:
         1. messages: List of {"role": ..., "content": ...}
         2. instruction/thought/response: Simplified format
+        
+        IMPORTANT: Always ends with <|im_end|> to prevent model "babbling"
         """
         formatted_parts = []
         
@@ -140,7 +142,15 @@ class CoTDataset(Dataset):
             raise ValueError(f"Unknown example format: {example.keys()}")
         
         # Join all parts with newlines
-        return '\n'.join(formatted_parts)
+        # CRITICAL: This ensures every training example ends with <|im_end|>
+        # which teaches the model when to stop generating
+        conversation = '\n'.join(formatted_parts)
+        
+        # Ensure conversation ends with <|im_end|> (should already be there from _format_message)
+        if not conversation.endswith(SPECIAL_TOKENS['im_end']):
+            conversation += SPECIAL_TOKENS['im_end']
+        
+        return conversation
     
     def __len__(self) -> int:
         return len(self.examples)
@@ -153,7 +163,7 @@ class CoTDataset(Dataset):
             Dictionary with:
             - input_ids: Token IDs
             - attention_mask: Attention mask
-            - labels: Labels for language modeling (same as input_ids)
+            - labels: Labels for language modeling (only Thought + Assistant, System + User masked)
         """
         example = self.examples[idx]
         
@@ -193,10 +203,56 @@ class CoTDataset(Dataset):
         # Create attention mask (1 for real tokens, 0 for padding)
         attention_mask = (input_ids != self.tokenizer.pad_token_id).long()
         
-        # Create labels (same as input_ids for causal LM)
-        # Mask padding tokens in labels (-100 is ignored by loss)
+        # Create labels with proper masking to prevent "lazy" learning
+        # We only want to train on Thought + Assistant responses, not System + User prompts
         labels = input_ids.clone()
+        
+        # Mask padding tokens
         labels[labels == self.tokenizer.pad_token_id] = -100
+        
+        # Mask System and User prompts (only train on Thought + Assistant)
+        # Find special token IDs
+        im_start_id = self.tokenizer.encode(SPECIAL_TOKENS['im_start'])[0]
+        im_end_id = self.tokenizer.encode(SPECIAL_TOKENS['im_end'])[0]
+        
+        # Parse the sequence to find System and User sections
+        i = 0
+        while i < len(labels):
+            if labels[i] == im_start_id and i + 1 < len(labels):
+                # Found <|im_start|>, check the role
+                # Roles: system, user, thought, assistant
+                # We want to mask system and user, keep thought and assistant
+                
+                # Find the end of this message
+                end_idx = i + 1
+                while end_idx < len(labels) and labels[end_idx] != im_end_id:
+                    end_idx += 1
+                
+                # Check if this is system or user by looking at the tokens after <|im_start|>
+                # Format: <|im_start|>role\ncontent<|im_end|>
+                # We need to check the role token
+                role_start = i + 1
+                role_end = role_start
+                
+                # Find newline after role (token ID varies, but we can check a few tokens)
+                while role_end < min(role_start + 10, end_idx):
+                    role_end += 1
+                    # Simple heuristic: if we see "thought" or "assistant" in first few tokens, keep it
+                    # Otherwise (system/user), mask it
+                    role_tokens = input_ids[role_start:role_end].tolist()
+                    role_text = self.tokenizer.decode(role_tokens).lower()
+                    
+                    if 'thought' in role_text or 'assistant' in role_text:
+                        # Keep these for training
+                        break
+                    elif 'system' in role_text or 'user' in role_text:
+                        # Mask system and user prompts
+                        labels[i:end_idx+1] = -100
+                        break
+                
+                i = end_idx + 1
+            else:
+                i += 1
         
         return {
             'input_ids': input_ids,
