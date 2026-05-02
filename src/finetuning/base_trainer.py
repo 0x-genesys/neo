@@ -386,10 +386,27 @@ class LoRAFineTuner:
                 print(f"   Input shape: {input_ids.shape}")
                 print(f"   Labels shape: {labels.shape}")
                 
+                # Check model's actual output vocab size
+                if hasattr(self.model, 'base_model'):
+                    # PEFT wrapped model
+                    base_model = self.model.base_model.model
+                else:
+                    base_model = self.model
+                
+                if hasattr(base_model, 'lm_head'):
+                    lm_head_out_features = base_model.lm_head.out_features
+                    print(f"   Model lm_head output size: {lm_head_out_features}")
+                    
+                    if lm_head_out_features != vocab_size:
+                        print(f"\n❌ CRITICAL: Model output size mismatch!")
+                        print(f"   lm_head outputs {lm_head_out_features} logits")
+                        print(f"   But config says vocab_size={vocab_size}")
+                        print(f"   Loss function expects {vocab_size} classes")
+                        raise ValueError(f"Model output size {lm_head_out_features} != vocab_size {vocab_size}")
+                
                 if max_input_id >= vocab_size:
                     print(f"\n❌ ERROR: Found input token ID {max_input_id} >= vocab_size {vocab_size}")
                     print(f"   This will cause CUDA assertion errors!")
-                    # Find which tokens are out of range
                     bad_tokens = (input_ids >= vocab_size).sum().item()
                     print(f"   Number of out-of-range tokens: {bad_tokens}")
                     raise ValueError(f"Token IDs exceed vocab size: {max_input_id} >= {vocab_size}")
