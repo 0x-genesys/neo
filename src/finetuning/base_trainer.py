@@ -497,7 +497,7 @@ class LoRAFineTuner:
                 if self.global_step % self.save_steps == 0:
                     self.save_checkpoint(f"checkpoint_step_{self.global_step}")
             
-            total_loss += loss.item() * self.gradient_accumulation_steps
+            total_loss += loss.mean().item() * self.gradient_accumulation_steps
             num_batches += 1
         
         return total_loss / num_batches
@@ -527,7 +527,7 @@ class LoRAFineTuner:
                 outputs = self.model(input_ids=input_ids, targets=labels)
                 logits, loss = outputs
             
-            total_loss += loss.item()
+            total_loss += loss.mean().item()
             num_batches += 1
         
         return total_loss / num_batches
