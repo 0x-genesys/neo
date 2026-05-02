@@ -306,6 +306,20 @@ class DecoderOnlyTransformer(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
         
         return idx
+    
+    def prepare_inputs_for_generation(self, input_ids, **kwargs):
+        """
+        Prepare inputs for generation (required by PEFT).
+        
+        Args:
+            input_ids: Input token IDs
+            **kwargs: Additional arguments
+            
+        Returns:
+            Dictionary with model inputs
+        """
+        return {"input_ids": input_ids}
+
 
 
 def create_model(config):

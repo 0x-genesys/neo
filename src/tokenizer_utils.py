@@ -7,6 +7,69 @@ the PyTorch version warning in transformers library.
 import torch
 
 
+def load_tokenizer():
+    """
+    Load the default tokenizer (tiktoken cl100k_base).
+    
+    Returns:
+        Tokenizer wrapper compatible with HuggingFace interface
+    """
+    try:
+        import tiktoken
+    except ImportError:
+        raise ImportError("tiktoken is required. Install with: pip install tiktoken")
+    
+    encoding = tiktoken.get_encoding("cl100k_base")
+    
+    # Create a wrapper to match HuggingFace interface
+    class TiktokenWrapper:
+        def __init__(self, encoding):
+            self.encoding = encoding
+            self.vocab_size = encoding.n_vocab
+            self.eos_token = "<|endoftext|>"
+            self.pad_token = "<|endoftext|>"
+            # Get special token IDs properly
+            self.eos_token_id = encoding.encode_single_token(self.eos_token)
+            self.pad_token_id = self.eos_token_id
+        
+        def encode(self, text, **kwargs):
+            return self.encoding.encode(text, allowed_special='all')
+        
+        def decode(self, tokens, **kwargs):
+            return self.encoding.decode(tokens)
+        
+        def add_special_tokens(self, special_tokens_dict):
+            """
+            Add special tokens (compatibility method).
+            For tiktoken, special tokens are already in vocabulary.
+            
+            Args:
+                special_tokens_dict: Dictionary of special tokens
+                
+            Returns:
+                Number of tokens added (always 0 for tiktoken)
+            """
+            # Tiktoken already has special tokens in vocabulary
+            # This is just for compatibility with HuggingFace interface
+            return 0
+        
+        def save_pretrained(self, save_directory):
+            """
+            Save tokenizer (compatibility method).
+            For tiktoken, this is a no-op since it's a fixed vocabulary.
+            
+            Args:
+                save_directory: Directory to save to
+            """
+            # Tiktoken uses a fixed vocabulary, no need to save
+            pass
+        
+        def __len__(self):
+            return self.vocab_size
+    
+    return TiktokenWrapper(encoding)
+
+
 def encode_to_tensor(tokenizer, text, device='cpu'):
     """
     Encode text to PyTorch tensor.

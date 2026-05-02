@@ -467,7 +467,7 @@ python scripts/prepare_finetuning_data.py split \
 # 1. Prepare datasets from HuggingFace
 python scripts/prepare_finetuning_data.py hf --output-dir data/hf_cot
 
-# 2. Fine-tune with automatic upload
+# 2. Fine-tune with automatic upload (uploads as chat_adapter)
 python src/finetuning/gpu_finetune.py \
     --model-remote best_model.pt \
     --train-data data/hf_cot/train.jsonl \
@@ -476,18 +476,23 @@ python src/finetuning/gpu_finetune.py \
     --upload-repo 0x-genesys/neo_weights_checkpoints \
     --upload-path finetune/
 
-# 3. Merge adapter with base model
+# 3. Use chat inference with LoRA adapter (no merging needed)
+python src/finetuning/chat_inference.py --interactive
+
+# 4. (Optional) Merge adapter with base model for standalone inference
 python scripts/merge_lora_model.py \
     --base-model-remote best_model.pt \
     --adapter finetuned_model_gpu/best_model \
     --output merged_finetuned_model.pt \
     --upload \
     --upload-repo 0x-genesys/neo_weights_checkpoints \
-    --upload-path finetune/
+    --upload-path finetune/ \
+    --upload-name final_model.pt
 
-# 4. Use merged model for inference
+# 5. Use merged model for inference
 python src/inference.py \
-    --model merged_finetuned_model.pt \
+    --model-remote final_model.pt \
+    --model-repo 0x-genesys/neo_weights_checkpoints \
     --prompt "Explain quantum computing" \
     --interactive
 ```

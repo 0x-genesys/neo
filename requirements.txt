@@ -14,7 +14,7 @@ torchvision>=0.15.0
 
 # TPU Support (optional - for Google Cloud TPU)
 # Uncomment to enable TPU training:
-torch_xla>=2.0.0
+# torch_xla>=2.0.0
 
 # Transformers and NLP
 transformers>=4.30.0
@@ -26,7 +26,7 @@ tiktoken>=0.5.0  # For GPT-4 tokenizer support
 # Fine-Tuning with LoRA
 peft>=0.5.0  # Parameter-Efficient Fine-Tuning (LoRA, QLoRA, etc.)
 accelerate>=0.20.0  # Distributed training and mixed precision
-bitsandbytes>=0.41.0  # Quantization support (optional, for QLoRA)
+bitsandbytes>=0.41.0; platform_system != "Darwin"  # Quantization support (optional, not for macOS)
 scipy>=1.10.0  # Required for some PEFT operations
 safetensors>=0.3.0  # Safe tensor serialization
 
