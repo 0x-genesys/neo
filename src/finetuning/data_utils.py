@@ -201,42 +201,56 @@ class CoTDataset(Dataset):
         labels[labels == self.tokenizer.pad_token_id] = -100
         
         # Mask System and User prompts (only train on Thought + Assistant)
-        # Get special token IDs
+        # CRITICAL FIX: Verify special tokens are encoded as single tokens
         try:
             im_start_tokens = self.tokenizer.encode(SPECIAL_TOKENS['im_start'])
             im_end_tokens = self.tokenizer.encode(SPECIAL_TOKENS['im_end'])
-            im_start_id = im_start_tokens[0] if im_start_tokens else None
-            im_end_id = im_end_tokens[0] if im_end_tokens else None
             
-            if im_start_id is not None and im_end_id is not None:
-                # Parse sequence to find and mask System/User sections
-                i = 0
-                while i < len(labels):
-                    if input_ids[i] == im_start_id:
-                        # Found start of a message block
-                        # Find the end
-                        end_idx = i + 1
-                        while end_idx < len(labels) and input_ids[end_idx] != im_end_id:
-                            end_idx += 1
+            # Verify these are single tokens (not split)
+            if len(im_start_tokens) != 1 or len(im_end_tokens) != 1:
+                raise ValueError(
+                    f"Special tokens are being split! "
+                    f"<|im_start|> = {len(im_start_tokens)} tokens, "
+                    f"<|im_end|> = {len(im_end_tokens)} tokens. "
+                    f"Expected 1 token each. "
+                    f"Make sure tokenizer.encode() uses allowed_special='all'"
+                )
+            
+            im_start_id = im_start_tokens[0]
+            im_end_id = im_end_tokens[0]
+            
+            # Parse sequence to find and mask System/User sections
+            i = 0
+            while i < len(labels):
+                if input_ids[i] == im_start_id:
+                    # Found start of a message block
+                    # Find the end
+                    end_idx = i + 1
+                    while end_idx < len(labels) and input_ids[end_idx] != im_end_id:
+                        end_idx += 1
+                    
+                    # Extract role (next few tokens after <|im_start|>)
+                    if i + 1 < len(input_ids):
+                        # Check up to 20 tokens for role identification
+                        role_check_end = min(i + 20, end_idx)
+                        role_tokens = input_ids[i+1:role_check_end].tolist()
+                        role_text = self.tokenizer.decode(role_tokens).lower()
                         
-                        # Extract role (next few tokens after <|im_start|>)
-                        if i + 1 < len(input_ids):
-                            # Check up to 20 tokens for role identification
-                            role_check_end = min(i + 20, end_idx)
-                            role_tokens = input_ids[i+1:role_check_end].tolist()
-                            role_text = self.tokenizer.decode(role_tokens).lower()
-                            
-                            # Mask system and user, keep thought and assistant
-                            if 'system' in role_text or 'user' in role_text:
-                                # Mask this entire block
-                                labels[i:end_idx+1] = -100
-                            # else: keep thought and assistant for training
-                        
-                        i = end_idx + 1
-                    else:
-                        i += 1
+                        # Mask system and user, keep thought and assistant
+                        if 'system' in role_text or 'user' in role_text:
+                            # Mask this entire block
+                            labels[i:end_idx+1] = -100
+                        # else: keep thought and assistant for training
+                    
+                    i = end_idx + 1
+                else:
+                    i += 1
+                    
+        except ValueError as e:
+            # Re-raise tokenization errors
+            raise
         except Exception as e:
-            # If masking fails, just mask padding (safe fallback)
+            # If masking fails for other reasons, just mask padding (safe fallback)
             print(f"Warning: Could not apply role-based masking: {e}")
             pass
         

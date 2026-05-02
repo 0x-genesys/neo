@@ -95,6 +95,10 @@ def main():
     parser.add_argument('--save-steps', type=int, default=1000,
                         help='Save checkpoint every N steps (default: 1000)')
     
+    # Multi-GPU arguments
+    parser.add_argument('--multi-gpu', action='store_true',
+                        help='Use DataParallel for multi-GPU training')
+    
     args = parser.parse_args()
     
     print("\n" + "="*80)
@@ -209,6 +213,29 @@ def main():
     
     tokenizer = load_tokenizer()
     tokenizer = prepare_tokenizer(tokenizer)
+    
+    # CRITICAL: Verify special tokens are encoded as single tokens
+    print(f"\n🔍 Verifying Special Token Encoding...")
+    from src.finetuning.data_utils import SPECIAL_TOKENS
+    
+    im_start_tokens = tokenizer.encode(SPECIAL_TOKENS['im_start'])
+    im_end_tokens = tokenizer.encode(SPECIAL_TOKENS['im_end'])
+    
+    print(f"   <|im_start|> encoded as: {im_start_tokens} ({len(im_start_tokens)} token{'s' if len(im_start_tokens) != 1 else ''})")
+    print(f"   <|im_end|> encoded as: {im_end_tokens} ({len(im_end_tokens)} token{'s' if len(im_end_tokens) != 1 else ''})")
+    
+    if len(im_start_tokens) != 1 or len(im_end_tokens) != 1:
+        print(f"\n❌ CRITICAL ERROR: Special tokens are being split!")
+        print(f"   <|im_start|> should be 1 token, got {len(im_start_tokens)}")
+        print(f"   <|im_end|> should be 1 token, got {len(im_end_tokens)}")
+        print(f"\n   This will cause training to fail.")
+        print(f"   The tokenizer must use allowed_special='all' when encoding.")
+        print(f"   Check src/tokenizer_utils.py TiktokenWrapper.encode() method.")
+        raise ValueError("Special tokens are being split into multiple tokens")
+    
+    print(f"✅ Special tokens verified as single tokens")
+    print(f"   <|im_start|> = token ID {im_start_tokens[0]}")
+    print(f"   <|im_end|> = token ID {im_end_tokens[0]}")
     
     # Get actual tokenizer vocab size
     tokenizer_vocab_size = len(tokenizer)
@@ -356,6 +383,7 @@ def main():
         output_dir=CHECKPOINT_CONFIG['output_dir'],
         device=device,
         use_amp=use_amp,
+        use_multi_gpu=args.multi_gpu,
         resume_from_checkpoint=resume_from,
         upload_to_hub=args.upload,
         hub_repo_id=args.upload_repo,

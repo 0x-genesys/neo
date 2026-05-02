@@ -55,6 +55,7 @@ class LoRAFineTuner:
         upload_to_hub: bool = True,
         hub_repo_id: str = "0x-genesys/neo_weights_checkpoints",
         hub_path_prefix: str = "finetune/",
+        use_multi_gpu: bool = False,
     ):
         """
         Initialize the LoRA fine-tuner.
@@ -84,6 +85,7 @@ class LoRAFineTuner:
             upload_to_hub: Upload checkpoints to HuggingFace Hub
             hub_repo_id: HuggingFace repository ID
             hub_path_prefix: Path prefix in repository (e.g., "finetune/")
+            use_multi_gpu: Use DataParallel for multi-GPU training
         """
         self.model = model
         self.tokenizer = tokenizer
@@ -104,6 +106,7 @@ class LoRAFineTuner:
         self.eval_steps = eval_steps
         self.save_steps = save_steps
         self.use_amp = use_amp
+        self.use_multi_gpu = use_multi_gpu
         
         # LoRA configuration
         self.lora_r = lora_r
@@ -117,6 +120,24 @@ class LoRAFineTuner:
         
         # Device setup
         self.device = self._setup_device(device)
+        
+        # Multi-GPU setup
+        self.n_gpu = 0
+        if self.use_multi_gpu and torch.cuda.is_available():
+            self.n_gpu = torch.cuda.device_count()
+            if self.n_gpu > 1:
+                print(f"\n🚀 Multi-GPU Training Enabled")
+                print(f"   Number of GPUs: {self.n_gpu}")
+                for i in range(self.n_gpu):
+                    print(f"   GPU {i}: {torch.cuda.get_device_name(i)}")
+                # Adjust batch size for multi-GPU
+                print(f"   Effective batch size: {self.batch_size} x {self.n_gpu} = {self.batch_size * self.n_gpu}")
+            else:
+                print(f"⚠️  Multi-GPU requested but only 1 GPU available")
+                self.use_multi_gpu = False
+        elif self.use_multi_gpu:
+            print(f"⚠️  Multi-GPU requested but CUDA not available")
+            self.use_multi_gpu = False
         
         # Verify model has PEFT-required attributes
         if not hasattr(self.model, 'config'):
@@ -139,6 +160,12 @@ class LoRAFineTuner:
         
         # Move model to device
         self.model.to(self.device)
+        
+        # Apply DataParallel for multi-GPU
+        if self.use_multi_gpu and self.n_gpu > 1:
+            print(f"\n🔧 Wrapping model with DataParallel for {self.n_gpu} GPUs")
+            self.model = nn.DataParallel(self.model)
+            print(f"✅ DataParallel enabled")
         
         # Create data loaders
         self.train_loader = self._create_dataloader(train_dataset, shuffle=True)
@@ -572,8 +599,11 @@ class LoRAFineTuner:
         save_path = self.output_dir / name
         save_path.mkdir(parents=True, exist_ok=True)
         
+        # Get the actual model (unwrap DataParallel if needed)
+        model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
+        
         # Save LoRA weights
-        self.model.save_pretrained(save_path)
+        model_to_save.save_pretrained(save_path)
         
         # Save tokenizer
         self.tokenizer.save_pretrained(save_path)
@@ -592,7 +622,6 @@ class LoRAFineTuner:
         print(f"💾 Checkpoint saved: {save_path}")
         
         # Upload to HuggingFace Hub if enabled
-        # Upload best model always, and epoch checkpoints if requested
         if self.upload_to_hub:
             if is_best or name.startswith("checkpoint_epoch_"):
                 self._upload_checkpoint_to_hub(save_path, name)
@@ -645,9 +674,18 @@ class LoRAFineTuner:
         """Load model checkpoint."""
         load_path = Path(path)
         
+        # Get the actual model (unwrap DataParallel if needed)
+        model_to_load = self.model.module if hasattr(self.model, 'module') else self.model
+        
         # Load LoRA weights
         from peft import PeftModel
-        self.model = PeftModel.from_pretrained(self.model, load_path)
+        model_to_load = PeftModel.from_pretrained(model_to_load, load_path)
+        
+        # Re-wrap with DataParallel if needed
+        if self.use_multi_gpu and self.n_gpu > 1:
+            self.model = nn.DataParallel(model_to_load)
+        else:
+            self.model = model_to_load
         
         # Load training state
         state_path = load_path / "training_state.pt"

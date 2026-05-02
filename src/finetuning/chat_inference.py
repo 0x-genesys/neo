@@ -223,8 +223,31 @@ class ChatGenerator:
         print(f"\n📂 Loading LoRA adapter from: {adapter_path}")
         try:
             from peft import PeftModel
+            
+            # Check adapter config before loading
+            adapter_config_path = adapter_path / "adapter_config.json"
+            if adapter_config_path.exists():
+                import json
+                with open(adapter_config_path, 'r') as f:
+                    adapter_config = json.load(f)
+                print(f"   Adapter config:")
+                print(f"   - LoRA rank (r): {adapter_config.get('r', 'N/A')}")
+                print(f"   - LoRA alpha: {adapter_config.get('lora_alpha', 'N/A')}")
+                print(f"   - Target modules: {adapter_config.get('target_modules', 'N/A')}")
+                print(f"   - Task type: {adapter_config.get('task_type', 'N/A')}")
+            
             self.model = PeftModel.from_pretrained(self.model, adapter_path)
             print(f"✅ LoRA adapter loaded")
+            
+            # Verify adapter is actually being used
+            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            total_params = sum(p.numel() for p in self.model.parameters())
+            print(f"   Trainable parameters: {trainable_params:,} ({100*trainable_params/total_params:.2f}%)")
+            
+            if trainable_params == 0:
+                print(f"⚠️  WARNING: No trainable parameters! Adapter may not be active.")
+                print(f"   This could cause poor generation quality.")
+            
         except ImportError:
             print("❌ PEFT library not installed. Install with: pip install peft")
             raise
@@ -407,112 +430,54 @@ class ChatGenerator:
         temperature: float = 0.7,
         top_k: int = 50,
         top_p: float = 0.9,
-        stop_sequences: list = None,
     ) -> torch.Tensor:
         """
         Custom generation loop that ensures LoRA weights are applied.
         
-        This method implements autoregressive generation by calling the PEFT model's
-        forward method directly, which includes LoRA adapter weights.
-        
         Args:
             input_ids: Starting token indices (B, T)
             max_new_tokens: Number of tokens to generate
-            temperature: Sampling temperature (higher = more random)
-            top_k: Keep only top k tokens for sampling
-            top_p: Nucleus sampling threshold
-            stop_sequences: List of token sequences that trigger early stopping
+            temperature: Sampling temperature
+            top_k: Top-k sampling
+            top_p: Nucleus sampling
             
         Returns:
             Generated token indices (B, T + max_new_tokens)
         """
         idx = input_ids.clone()
-        
-        # Get context length from model config
         max_context = self.model.config.max_position_embeddings
         
-        # Prepare stop sequences (tokenized)
-        if stop_sequences is None:
-            stop_sequences = []
-        
-        # Get stop token IDs for efficient checking
+        # Get stop token ID (single token for <|im_end|>)
         im_end_tokens = self.tokenizer.encode(SPECIAL_TOKENS['im_end'])
-        assistant_tokens = self.tokenizer.encode(SPECIAL_TOKENS['assistant'])
-        
-        # Track whether we've seen the assistant tag
-        seen_assistant_tag = False
-        assistant_end_count = 0
+        im_end_id = im_end_tokens[0] if len(im_end_tokens) == 1 else None
         
         for step in range(max_new_tokens):
-            # Crop context if needed to fit within model's context window
             idx_cond = idx if idx.size(1) <= max_context else idx[:, -max_context:]
             
-            # Forward pass through PEFT model (includes LoRA)
-            # This calls the wrapped model's forward, which applies LoRA weights
             logits, _ = self.model(input_ids=idx_cond)
-            
-            # Get logits for the last position (next token prediction)
             logits = logits[:, -1, :] / temperature
             
-            # Apply top-k filtering
             if top_k is not None:
                 v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
                 logits[logits < v[:, [-1]]] = -float('Inf')
             
-            # Apply top-p (nucleus) filtering
             if top_p is not None:
                 sorted_logits, sorted_indices = torch.sort(logits, descending=True)
                 cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
-                
-                # Remove tokens with cumulative probability above threshold
                 sorted_indices_to_remove = cumulative_probs > top_p
-                # Keep the first token that pushes over threshold
                 sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
                 sorted_indices_to_remove[..., 0] = 0
-                
-                # Scatter back to original order
                 indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
                 logits[indices_to_remove] = -float('Inf')
             
-            # Sample from distribution
             probs = F.softmax(logits, dim=-1)
             idx_next = torch.multinomial(probs, num_samples=1)
-            
-            # Append to sequence
             idx = torch.cat((idx, idx_next), dim=1)
             
-            # Smart stopping: Only check when we might be at a stop point
-            # Check if the last token could be part of <|im_end|>
-            last_token = idx_next[0, 0].item()
-            
-            # Quick check: if last token is in im_end sequence, do full check
-            if im_end_tokens and last_token in im_end_tokens:
-                # Decode only the generated part (not the prompt)
-                generated_text = self.tokenizer.decode(idx[0, input_ids.size(1):].tolist())
-                
-                # Check if we've seen the assistant tag
-                assistant_tag = f"{SPECIAL_TOKENS['im_start']}{SPECIAL_TOKENS['assistant']}"
-                if assistant_tag in generated_text and not seen_assistant_tag:
-                    seen_assistant_tag = True
-                
-                # Stop conditions:
-                # 1. If we've seen assistant tag AND current text ends with <|im_end|>
-                if seen_assistant_tag and generated_text.rstrip().endswith(SPECIAL_TOKENS['im_end']):
-                    # Count <|im_end|> after assistant tag
-                    assistant_end_count += 1
-                    
-                    # Stop after first <|im_end|> following assistant tag
-                    # (This allows thought block to complete before assistant)
-                    if assistant_end_count >= 1:
-                        return idx
-                
-                # 2. Check for repetition (multiple assistant tags)
-                if generated_text.count(assistant_tag) > 1:
-                    return idx
-                
-                # 3. Check for user tag (shouldn't happen)
-                user_tag = f"{SPECIAL_TOKENS['im_start']}{SPECIAL_TOKENS['user']}"
-                if user_tag in generated_text:
+            # Stop if we generate <|im_end|> token (when it's a single token)
+            if im_end_id is not None and idx_next[0, 0].item() == im_end_id:
+                # Check if we've generated enough (at least thought + assistant)
+                if step > 20:  # Minimum reasonable response length
                     return idx
         
         return idx
