@@ -163,30 +163,24 @@ class CoTDataset(Dataset):
             Dictionary with:
             - input_ids: Token IDs
             - attention_mask: Attention mask
-            - labels: Labels for language modeling (same as input_ids for now)
-        
-        Note: Advanced prompt masking disabled for now to ensure correct alignment.
-        The model's forward() handles the standard causal LM setup internally.
+            - labels: Labels with System/User masked, only train on Thought/Assistant
         """
         example = self.examples[idx]
         
         # Format conversation
         text = self._format_conversation(example)
         
-        # Tokenize using encode method (TiktokenWrapper compatible)
+        # Tokenize
         tokens = self.tokenizer.encode(text)
-        
-        # Vocab size check
         vocab_size = len(self.tokenizer)
         
-        # Clamp any out-of-range tokens to vocab_size - 1
+        # Clamp any out-of-range tokens
         tokens = [min(t, vocab_size - 1) for t in tokens]
         
         # Truncate or pad to max_length
         if len(tokens) > self.max_length:
             tokens = tokens[:self.max_length]
         else:
-            # Pad with pad_token_id
             pad_length = self.max_length - len(tokens)
             tokens = tokens + [self.tokenizer.pad_token_id] * pad_length
         
@@ -197,13 +191,54 @@ class CoTDataset(Dataset):
         if input_ids.max() >= vocab_size:
             input_ids = torch.clamp(input_ids, 0, vocab_size - 1)
         
-        # Create attention mask (1 for real tokens, 0 for padding)
+        # Create attention mask
         attention_mask = (input_ids != self.tokenizer.pad_token_id).long()
         
-        # Create labels - simple approach for now
-        # Just mask padding, no complex prompt masking
+        # Create labels with intelligent masking
         labels = input_ids.clone()
+        
+        # Mask padding tokens
         labels[labels == self.tokenizer.pad_token_id] = -100
+        
+        # Mask System and User prompts (only train on Thought + Assistant)
+        # Get special token IDs
+        try:
+            im_start_tokens = self.tokenizer.encode(SPECIAL_TOKENS['im_start'])
+            im_end_tokens = self.tokenizer.encode(SPECIAL_TOKENS['im_end'])
+            im_start_id = im_start_tokens[0] if im_start_tokens else None
+            im_end_id = im_end_tokens[0] if im_end_tokens else None
+            
+            if im_start_id is not None and im_end_id is not None:
+                # Parse sequence to find and mask System/User sections
+                i = 0
+                while i < len(labels):
+                    if input_ids[i] == im_start_id:
+                        # Found start of a message block
+                        # Find the end
+                        end_idx = i + 1
+                        while end_idx < len(labels) and input_ids[end_idx] != im_end_id:
+                            end_idx += 1
+                        
+                        # Extract role (next few tokens after <|im_start|>)
+                        if i + 1 < len(input_ids):
+                            # Check up to 20 tokens for role identification
+                            role_check_end = min(i + 20, end_idx)
+                            role_tokens = input_ids[i+1:role_check_end].tolist()
+                            role_text = self.tokenizer.decode(role_tokens).lower()
+                            
+                            # Mask system and user, keep thought and assistant
+                            if 'system' in role_text or 'user' in role_text:
+                                # Mask this entire block
+                                labels[i:end_idx+1] = -100
+                            # else: keep thought and assistant for training
+                        
+                        i = end_idx + 1
+                    else:
+                        i += 1
+        except Exception as e:
+            # If masking fails, just mask padding (safe fallback)
+            print(f"Warning: Could not apply role-based masking: {e}")
+            pass
         
         return {
             'input_ids': input_ids,

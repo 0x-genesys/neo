@@ -248,18 +248,30 @@ class DecoderOnlyTransformer(nn.Module):
         loss = None
         if targets is not None:
             # Determine ignore_index based on what values are in targets
-            # Base training: no padding, no ignore needed (but -1 works fine)
-            # Finetuning: uses -100 for padding (HuggingFace standard)
-            # We check if -100 exists in targets to auto-detect
             if (targets == -100).any():
                 ignore_index = -100  # Finetuning mode
             else:
-                ignore_index = -1  # Base training mode (no padding to ignore)
+                ignore_index = -1  # Base training mode
+            
+            # CRITICAL: Check if causal shift is needed
+            # Base training: collate_fn already shifts, so input_ids and targets have different lengths
+            # Finetuning: no shift yet, input_ids and targets have same length
+            
+            if idx.shape[1] == targets.shape[1]:
+                # Same length = not shifted yet (finetuning mode)
+                # Apply causal shift: predict token[i+1] from token[i]
+                shift_logits = logits[:, :-1, :].contiguous()
+                shift_targets = targets[:, 1:].contiguous()
+            else:
+                # Different lengths = already shifted (base training mode)
+                # No additional shift needed
+                shift_logits = logits
+                shift_targets = targets
             
             # Flatten batch and time dimensions for cross-entropy
             loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)),
-                targets.view(-1),
+                shift_logits.view(-1, shift_logits.size(-1)),
+                shift_targets.view(-1),
                 ignore_index=ignore_index
             )
         

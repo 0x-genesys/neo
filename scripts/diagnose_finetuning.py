@@ -12,7 +12,10 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from src.model import create_model
 from src.tokenizer_utils import load_tokenizer
-from src.finetuning.data_utils import create_cot_dataset, prepare_tokenizer, SYSTEM_PROMPT
+from src.finetuning.data_utils import create_cot_dataset, prepare_tokenizer
+
+# System prompt for CoT
+SYSTEM_PROMPT = """You are a helpful, creative, and clever AI assistant. When a user asks a question, provide a clear and concise answer. If the question involves logic, think through it step-by-step using a 'thought' block. If the user asks for code, provide clean examples in Markdown. Admit if you are unsure of a fact."""
 
 def main():
     print("\n" + "="*80)
