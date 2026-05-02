@@ -203,9 +203,22 @@ class ChatGenerator:
         
         print(f"✅ Base model loaded")
         
+        # Add config and generation_config attributes for PEFT compatibility
+        # PEFT expects these attributes but our custom model doesn't have them
+        if not hasattr(self.model, 'config'):
+            from types import SimpleNamespace
+            vocab_size = self.model.token_embedding.num_embeddings
+            self.model.config = SimpleNamespace(
+                vocab_size=vocab_size,
+                hidden_size=model_config['d_model'],
+                num_hidden_layers=model_config['num_layers'],
+                num_attention_heads=model_config['num_heads'],
+                max_position_embeddings=model_config['context_length'],
+                model_type="gpt",  # PEFT uses this
+                is_encoder_decoder=False,
+            )
+        
         # Add generation_config attribute for PEFT compatibility
-        # PEFT expects this attribute but our custom model doesn't have it
-        # We'll add a dummy one since we use our own generate() method
         if not hasattr(self.model, 'generation_config'):
             from types import SimpleNamespace
             vocab_size = self.model.token_embedding.num_embeddings
