@@ -11,6 +11,28 @@ import argparse
 import yaml
 from pathlib import Path
 
+# Check PyTorch version
+def check_pytorch_version():
+    """Check if PyTorch version is compatible."""
+    torch_version = torch.__version__.split('+')[0]  # Remove +cu118 suffix if present
+    major, minor = map(int, torch_version.split('.')[:2])
+    
+    if major < 2 or (major == 2 and minor < 2):
+        print(f"\n❌ ERROR: PyTorch {torch_version} is too old")
+        print(f"   Required: PyTorch >= 2.2.0")
+        print(f"\n💡 To upgrade:")
+        print(f"   pip install --upgrade torch torchvision torchaudio")
+        print()
+        sys.exit(1)
+    elif major == 2 and minor < 4:
+        print(f"\n⚠️  Note: PyTorch {torch_version} detected")
+        print(f"   Some checkpoints saved with PyTorch 2.4+ may not load")
+        print(f"   Current version works for most use cases")
+        print()
+    return True
+
+check_pytorch_version()
+
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
@@ -67,14 +89,35 @@ class ChatGenerator:
             print(f"\n📥 Downloading adapter from HuggingFace Hub...")
             print(f"   Repository: {model_repo}")
             print(f"   Path: finetune/{adapter_remote}")
-            from huggingface_hub import snapshot_download
-            adapter_path = snapshot_download(
-                repo_id=model_repo,
-                allow_patterns=f"finetune/{adapter_remote}/*",
-                local_dir="./cache",
-            )
-            adapter_path = Path(adapter_path) / "finetune" / adapter_remote
-            print(f"✅ Downloaded to: {adapter_path}")
+            
+            try:
+                from huggingface_hub import snapshot_download
+                import tempfile
+                
+                # Download the entire finetune/adapter_remote directory
+                cache_dir = Path(tempfile.gettempdir()) / "hf_cache" / model_repo.replace("/", "_")
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Download with pattern matching
+                downloaded_path = snapshot_download(
+                    repo_id=model_repo,
+                    allow_patterns=f"finetune/{adapter_remote}/*",
+                    cache_dir=str(cache_dir),
+                    repo_type="model",
+                )
+                
+                adapter_path = Path(downloaded_path) / "finetune" / adapter_remote
+                
+                if not adapter_path.exists():
+                    raise FileNotFoundError(f"Adapter not found at {adapter_path}")
+                
+                print(f"✅ Downloaded to: {adapter_path}")
+                
+            except Exception as e:
+                print(f"❌ Error downloading adapter: {e}")
+                print(f"\n💡 Make sure the adapter exists at:")
+                print(f"   https://huggingface.co/{model_repo}/tree/main/finetune/{adapter_remote}")
+                raise
         
         # Validate paths
         if not base_model_path:
@@ -91,7 +134,29 @@ class ChatGenerator:
         
         # Load config
         print(f"\n📂 Loading base model from: {base_model_path}")
-        checkpoint = torch.load(base_model_path, map_location='cpu')
+        
+        # Try loading checkpoint with backward compatibility
+        try:
+            # Try modern PyTorch 2.4+ method first
+            checkpoint = torch.load(base_model_path, map_location='cpu', weights_only=False)
+        except TypeError:
+            # Fall back to older PyTorch method (no weights_only parameter)
+            try:
+                checkpoint = torch.load(base_model_path, map_location='cpu')
+            except AttributeError as e:
+                if '_rebuild_device_tensor_from_cpu_tensor' in str(e):
+                    print(f"\n❌ Checkpoint incompatibility detected!")
+                    print(f"   This checkpoint was saved with a newer PyTorch version.")
+                    print(f"   Current PyTorch: {torch.__version__}")
+                    print(f"\n💡 Workaround: Re-save the checkpoint with your current PyTorch version")
+                    print(f"   Or use the checkpoint from the same PyTorch version it was trained with")
+                    raise RuntimeError(f"Checkpoint incompatibility. Please re-save checkpoint with PyTorch {torch.__version__}") from e
+                else:
+                    raise
+        except Exception as e:
+            print(f"\n❌ Error loading checkpoint: {e}")
+            print(f"   Checkpoint path: {base_model_path}")
+            raise
         
         if config_path:
             with open(config_path, 'r') as f:
@@ -411,19 +476,43 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Interactive mode with remote models (default - no arguments needed!)
+  python src/finetuning/chat_inference.py --interactive
+  
   # Interactive mode with local models
   python src/finetuning/chat_inference.py \\
       --base-model checkpoints/best_model.pt \\
       --adapter finetuned_model_gpu/best_model \\
       --interactive
   
-  # Interactive mode with remote models (default)
-  python src/finetuning/chat_inference.py --interactive
-  
-  # Single prompt
+  # Single prompt with remote models
   python src/finetuning/chat_inference.py \\
-      --prompt "What is 17 * 23?" \\
+      --prompt "What is 2+2?"
+  
+  # Single prompt with local models
+  python src/finetuning/chat_inference.py \\
+      --base-model checkpoints/best_model.pt \\
+      --adapter finetuned_model_gpu/best_model \\
+      --prompt "Solve: 5x + 3 = 18"
+  
+  # Show thought process
+  python src/finetuning/chat_inference.py \\
+      --prompt "Explain quantum computing" \\
       --show-thought
+  
+  # Custom HuggingFace repository
+  python src/finetuning/chat_inference.py \\
+      --model-repo username/my-repo \\
+      --base-model-remote my_model.pt \\
+      --adapter-remote finetune/my_adapter \\
+      --interactive
+  
+  # Custom generation parameters
+  python src/finetuning/chat_inference.py \\
+      --temperature 0.9 \\
+      --top-k 100 \\
+      --max-tokens 512 \\
+      --interactive
   
   # Custom config
   python src/finetuning/chat_inference.py \\
@@ -436,30 +525,32 @@ Examples:
     parser.add_argument(
         '--base-model',
         type=str,
-        help='Path to local base model (.pt)'
+        default=None,
+        help='Path to local base model (.pt file). If not provided, uses --base-model-remote'
     )
     parser.add_argument(
         '--base-model-remote',
         type=str,
-        default='final_model.pt',
-        help='Remote base model filename (default: final_model.pt)'
+        default='best_model.pt',
+        help='Remote base model filename from HuggingFace Hub (default: best_model.pt)'
     )
     parser.add_argument(
         '--adapter',
         type=str,
-        help='Path to local LoRA adapter directory'
+        default=None,
+        help='Path to local LoRA adapter directory. If not provided, uses --adapter-remote'
     )
     parser.add_argument(
         '--adapter-remote',
         type=str,
-        default='chat_adapter',
-        help='Remote adapter path (default: chat_adapter)'
+        default='finetune/chat_adapter',
+        help='Remote adapter path in HuggingFace Hub (default: finetune/chat_adapter)'
     )
     parser.add_argument(
         '--model-repo',
         type=str,
         default='0x-genesys/neo_weights_checkpoints',
-        help='HuggingFace repository ID'
+        help='HuggingFace repository ID (default: 0x-genesys/neo_weights_checkpoints)'
     )
     
     # Config arguments
@@ -518,11 +609,11 @@ Examples:
     
     args = parser.parse_args()
     
-    # Determine model paths
+    # Determine model paths - prioritize local, fall back to remote
     base_model_path = args.base_model
     base_model_remote = None if args.base_model else args.base_model_remote
     
-    adapter_path = args.adapter if args.adapter else "chat_adapter"
+    adapter_path = args.adapter
     adapter_remote = None if args.adapter else args.adapter_remote
     
     # Initialize generator

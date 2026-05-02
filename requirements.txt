@@ -8,9 +8,9 @@ matplotlib==3.10.8
 seaborn==0.13.2
 
 # PyTorch (for Mac - MPS support)
-# Compatible with PyTorch 2.0+
-torch>=2.0.0
-torchvision>=0.15.0
+# Compatible with PyTorch 2.2+ (2.4+ recommended but not required)
+torch>=2.2.0
+torchvision>=0.17.0
 
 # TPU Support (optional - for Google Cloud TPU)
 # Uncomment to enable TPU training:

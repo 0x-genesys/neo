@@ -399,6 +399,51 @@ python src/finetuning/chat_inference.py \
     --show-thought
 ```
 
+# Interactive mode with remote models (default - no arguments needed!)
+python src/finetuning/chat_inference.py --interactive
+
+# Interactive mode with local models
+python src/finetuning/chat_inference.py \\
+    --base-model checkpoints/best_model.pt \\
+    --adapter finetuned_model_gpu/best_model \\
+    --interactive
+
+# Single prompt with remote models
+python src/finetuning/chat_inference.py \\
+    --prompt "What is 2+2?"
+
+# Single prompt with local models
+python src/finetuning/chat_inference.py \\
+    --base-model checkpoints/best_model.pt \\
+    --adapter finetuned_model_gpu/best_model \\
+    --prompt "Solve: 5x + 3 = 18"
+
+# Show thought process
+python src/finetuning/chat_inference.py \\
+    --prompt "Explain quantum computing" \\
+    --show-thought
+
+# Custom HuggingFace repository
+python src/finetuning/chat_inference.py \\
+    --model-repo username/my-repo \\
+    --base-model-remote my_model.pt \\
+    --adapter-remote finetune/my_adapter \\
+    --interactive
+
+# Custom generation parameters
+python src/finetuning/chat_inference.py \\
+    --temperature 0.9 \\
+    --top-k 100 \\
+    --max-tokens 512 \\
+    --interactive
+
+# Custom config
+python src/finetuning/chat_inference.py \\
+    --config config/inference.yaml \\
+    --interactive
+    """
+)
+
 **Features:**
 - Chain-of-Thought reasoning display
 - Interactive chat mode
