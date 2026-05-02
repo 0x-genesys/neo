@@ -623,32 +623,24 @@ class LoRAFineTuner:
             # Create repo if it doesn't exist
             try:
                 create_repo(self.hub_repo_id, repo_type="model", exist_ok=True)
-            except Exception:
+            except Exception as e:
+                print(f"   Note: {e}")
                 pass  # Repo already exists
-            
-            # Upload all files in checkpoint directory
-            files_to_upload = [
-                "adapter_config.json",
-                "adapter_model.bin",
-                "training_state.pt",
-                "tokenizer_config.json",
-                "tokenizer.json",
-            ]
             
             # Use chat_adapter as the name for best_model
             upload_name = "chat_adapter" if name == "best_model" else name
             
-            for filename in files_to_upload:
-                file_path = checkpoint_path / filename
-                if file_path.exists():
-                    repo_path = f"{self.hub_path_prefix}{upload_name}/{filename}"
-                    print(f"   Uploading {filename}...")
-                    api.upload_file(
-                        path_or_fileobj=str(file_path),
-                        path_in_repo=repo_path,
-                        repo_id=self.hub_repo_id,
-                        repo_type="model",
-                    )
+            # Upload entire directory instead of individual files
+            # This handles any file structure (PEFT, tokenizer, etc.)
+            print(f"   Uploading directory: {checkpoint_path}")
+            print(f"   Target path: {self.hub_path_prefix}{upload_name}/")
+            
+            api.upload_folder(
+                folder_path=str(checkpoint_path),
+                path_in_repo=f"{self.hub_path_prefix}{upload_name}",
+                repo_id=self.hub_repo_id,
+                repo_type="model",
+            )
             
             print(f"✅ Upload complete!")
             print(f"   URL: https://huggingface.co/{self.hub_repo_id}/tree/main/{self.hub_path_prefix}{upload_name}")
@@ -657,6 +649,9 @@ class LoRAFineTuner:
             print("⚠️  huggingface_hub not installed. Skipping upload.")
         except Exception as e:
             print(f"⚠️  Upload failed: {e}")
+            print(f"   Error type: {type(e).__name__}")
+            import traceback
+            traceback.print_exc()
             print("   Continuing training...")
     
     def load_checkpoint(self, path: str):
