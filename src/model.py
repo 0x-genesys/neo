@@ -202,18 +202,25 @@ class DecoderOnlyTransformer(nn.Module):
             n_params -= self.position_embedding.weight.numel()
         return n_params
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx=None, targets=None, input_ids=None):
         """
         Forward pass.
         
         Args:
-            idx: Input token indices (B, T)
+            idx: Input token indices (B, T) - our standard parameter name
+            input_ids: Alternative name for idx (for PEFT compatibility)
             targets: Target token indices (B, T) for computing loss
             
         Returns:
             logits: (B, T, vocab_size) if targets is None
             (logits, loss): if targets is provided
         """
+        # Handle both idx and input_ids for PEFT compatibility
+        if input_ids is not None:
+            idx = input_ids
+        elif idx is None:
+            raise ValueError("Either idx or input_ids must be provided")
+        
         B, T = idx.size()
         assert T <= self.context_length, f"Sequence length {T} exceeds context length {self.context_length}"
         
