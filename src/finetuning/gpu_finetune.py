@@ -197,8 +197,16 @@ def main():
     tokenizer = load_tokenizer()
     tokenizer = prepare_tokenizer(tokenizer)
     
-    # Update vocab size if tokenizer was extended
-    MODEL_CONFIG['vocab_size'] = len(tokenizer)
+    # Verify tokenizer vocab size matches model config
+    tokenizer_vocab_size = len(tokenizer)
+    model_vocab_size = MODEL_CONFIG['vocab_size']
+    
+    if tokenizer_vocab_size != model_vocab_size:
+        print(f"\n⚠️  WARNING: Vocab size mismatch!")
+        print(f"   Tokenizer vocab size: {tokenizer_vocab_size}")
+        print(f"   Model vocab size: {model_vocab_size}")
+        print(f"   Updating model config to match tokenizer...")
+        MODEL_CONFIG['vocab_size'] = tokenizer_vocab_size
     
     # ============================================================================
     # Load Pre-trained Model

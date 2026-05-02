@@ -232,28 +232,16 @@ def prepare_tokenizer(tokenizer):
     """
     Prepare tokenizer with special tokens for CoT.
     
-    Adds special tokens:
-    - <|im_start|>
-    - <|im_end|>
-    
-    And ensures proper padding and EOS tokens.
+    For tiktoken tokenizers, special tokens are already in the vocabulary.
+    This function just validates and sets up padding.
     """
-    # Add special tokens
-    special_tokens_dict = {
-        'additional_special_tokens': [
-            SPECIAL_TOKENS['im_start'],
-            SPECIAL_TOKENS['im_end'],
-        ]
-    }
-    
-    num_added = tokenizer.add_special_tokens(special_tokens_dict)
-    
-    # Set padding token if not set
+    # For tiktoken, special tokens like <|im_start|> and <|im_end|> are already in vocab
+    # Just ensure pad token is set
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
     print(f"✅ Tokenizer prepared:")
-    print(f"   Added {num_added} special tokens")
+    print(f"   Added 0 special tokens (already in tiktoken vocab)")
     print(f"   Vocabulary size: {len(tokenizer)}")
     print(f"   PAD token: {tokenizer.pad_token} (ID: {tokenizer.pad_token_id})")
     print(f"   EOS token: {tokenizer.eos_token} (ID: {tokenizer.eos_token_id})")
