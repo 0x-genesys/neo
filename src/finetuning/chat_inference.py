@@ -353,10 +353,6 @@ class ChatGenerator:
                         result['response'] = parts[-1].strip()
         
         return result
-            else:
-                result['response'] = assistant_section.strip()
-        
-        return result
     
     @torch.no_grad()
     def generate(
