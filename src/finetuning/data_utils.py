@@ -402,15 +402,17 @@ def pull_and_process_hf_datasets(
     Pull and process HuggingFace datasets into CoT format.
     
     Sources:
-    - microsoft/orca-math-word-problems-200k (5,000 samples)
-    - databricks/databricks-dolly-15k (15,000 samples)
-    - sahil2801/CodeAlpaca-20k (5,000 samples)
+    - microsoft/orca-math-word-problems-200k (5,000 samples) - Logic & Reasoning
+    - databricks/databricks-dolly-15k (15,000 samples) - General Assistant
+    - sahil2801/CodeAlpaca-20k (5,000 samples) - Coding & Technical
+    
+    Total: 25,000 samples
     
     Processing:
     - Filter by length (max 480 tokens for safety buffer)
     - Map to CoT format (User, Thought, Assistant)
     - Shuffle and merge
-    - Split into train/val
+    - Split into train/val (90/10)
     
     Args:
         output_dir: Output directory for processed data
@@ -435,42 +437,49 @@ def pull_and_process_hf_datasets(
     print("📥 Pulling and Processing HuggingFace Datasets")
     print("="*80 + "\n")
     
-    # 1. Orca Math (5,000 samples)
-    print("1️⃣  Processing microsoft/orca-math-word-problems-200k...")
+    # 1. Orca Math (5,000 samples) - Logic & Reasoning
+    print("1️⃣  Processing microsoft/orca-math-word-problems-200k (Logic & Reasoning)...")
+    print("   Target: 5,000 samples")
     try:
         orca_dataset = load_dataset("microsoft/orca-math-word-problems-200k", split="train")
         orca_samples = []
         
-        for i, item in enumerate(orca_dataset):
+        for item in orca_dataset:
             if len(orca_samples) >= 5000:
                 break
             
-            # Map: question -> User, explanation -> Thought, answer -> Assistant
+            # Map: question -> User, answer (with reasoning) -> Thought + Assistant
             question = item.get('question', '')
             answer = item.get('answer', '')
             
             if not question or not answer:
                 continue
             
-            # Extract explanation/reasoning from answer if available
-            # Orca format typically has step-by-step in the answer
+            # Orca Math has detailed step-by-step solutions
+            # Extract the reasoning process as "thought"
             thought = "Let me solve this step by step."
-            if len(answer) > 100:
-                # Try to extract reasoning part
-                parts = answer.split('\n')
-                if len(parts) > 1:
-                    thought = '\n'.join(parts[:-1])  # All but last line
-                    answer = parts[-1]  # Last line as final answer
+            response = answer
+            
+            # Try to split answer into reasoning and final answer
+            if '\n' in answer:
+                lines = answer.strip().split('\n')
+                # Use most of the answer as thought, last line as response
+                if len(lines) > 2:
+                    thought = '\n'.join(lines[:-1])
+                    response = lines[-1]
+                elif len(lines) == 2:
+                    thought = lines[0]
+                    response = lines[1]
             
             example = {
                 "instruction": question,
                 "thought": thought,
-                "response": answer,
+                "response": response,
             }
             
             # Filter by length if tokenizer provided
             if tokenizer:
-                text = f"System: You are a helpful assistant.\nUser: {question}\nThought: {thought}\nAssistant: {answer}"
+                text = f"System: You are a helpful assistant.\nUser: {question}\nThought: {thought}\nAssistant: {response}"
                 tokens = tokenizer.encode(text)
                 if len(tokens) > max_tokens:
                     continue
@@ -478,13 +487,14 @@ def pull_and_process_hf_datasets(
             orca_samples.append(example)
         
         all_examples.extend(orca_samples)
-        print(f"   ✅ Processed {len(orca_samples)} math samples")
+        print(f"   ✅ Processed {len(orca_samples)} math/logic samples")
     
     except Exception as e:
         print(f"   ⚠️  Error processing Orca Math: {e}")
     
-    # 2. Databricks Dolly (15,000 samples)
-    print("\n2️⃣  Processing databricks/databricks-dolly-15k...")
+    # 2. Databricks Dolly (ALL 15,000 samples) - General Assistant
+    print("\n2️⃣  Processing databricks/databricks-dolly-15k (General Assistant)...")
+    print("   Target: All 15,000 samples")
     try:
         dolly_dataset = load_dataset("databricks/databricks-dolly-15k", split="train")
         dolly_samples = []
@@ -494,6 +504,7 @@ def pull_and_process_hf_datasets(
             instruction = item.get('instruction', '')
             context = item.get('context', '')
             response = item.get('response', '')
+            category = item.get('category', '')
             
             if not instruction or not response:
                 continue
@@ -503,8 +514,25 @@ def pull_and_process_hf_datasets(
             if context:
                 user_message = f"{context}\n\n{instruction}"
             
-            # Simple thought for Dolly (general Q&A)
-            thought = "I will analyze this request and provide a helpful response."
+            # Create thought based on category
+            if category == 'closed_qa':
+                thought = "I'll analyze the context and provide a precise answer to this question."
+            elif category == 'open_qa':
+                thought = "Let me think about this question and provide a comprehensive answer."
+            elif category == 'summarization':
+                thought = "I'll read through the content and create a concise summary of the key points."
+            elif category == 'information_extraction':
+                thought = "I'll extract the relevant information from the provided text."
+            elif category == 'creative_writing':
+                thought = "I'll use creativity to craft an engaging response."
+            elif category == 'general_qa':
+                thought = "I'll provide a clear and helpful answer to this question."
+            elif category == 'brainstorming':
+                thought = "Let me generate some creative ideas for this."
+            elif category == 'classification':
+                thought = "I'll analyze this and provide the appropriate classification."
+            else:
+                thought = "I will analyze this request and provide a helpful response."
             
             example = {
                 "instruction": user_message,
@@ -527,35 +555,42 @@ def pull_and_process_hf_datasets(
     except Exception as e:
         print(f"   ⚠️  Error processing Dolly: {e}")
     
-    # 3. CodeAlpaca (5,000 samples)
-    print("\n3️⃣  Processing sahil2801/CodeAlpaca-20k...")
+    # 3. CodeAlpaca (5,000 samples) - Coding & Technical
+    print("\n3️⃣  Processing sahil2801/CodeAlpaca-20k (Coding & Technical)...")
+    print("   Target: 5,000 samples")
     try:
         code_dataset = load_dataset("sahil2801/CodeAlpaca-20k", split="train")
         code_samples = []
         
-        for i, item in enumerate(code_dataset):
+        for item in code_dataset:
             if len(code_samples) >= 5000:
                 break
             
-            # Map: instruction -> User, output -> Assistant
+            # Map: instruction + input -> User, output -> Assistant
             instruction = item.get('instruction', '')
+            input_text = item.get('input', '')
             output = item.get('output', '')
             
             if not instruction or not output:
                 continue
             
-            # Simple thought for code
-            thought = "I will write clean, well-documented code to solve this problem."
+            # Combine instruction and input
+            user_message = instruction
+            if input_text:
+                user_message = f"{instruction}\n\nInput: {input_text}"
+            
+            # Create thought for code generation
+            thought = "I'll write clean, well-documented code to solve this problem."
             
             example = {
-                "instruction": instruction,
+                "instruction": user_message,
                 "thought": thought,
                 "response": output,
             }
             
             # Filter by length
             if tokenizer:
-                text = f"System: You are a helpful assistant.\nUser: {instruction}\nThought: {thought}\nAssistant: {output}"
+                text = f"System: You are a helpful assistant.\nUser: {user_message}\nThought: {thought}\nAssistant: {output}"
                 tokens = tokenizer.encode(text)
                 if len(tokens) > max_tokens:
                     continue
@@ -593,9 +628,10 @@ def pull_and_process_hf_datasets(
     print("✅ Dataset Processing Complete!")
     print(f"{'='*80}")
     print(f"\nDataset Composition:")
-    print(f"  - Math (Orca): ~{len([e for e in all_examples if 'solve' in e.get('thought', '').lower()])} samples")
-    print(f"  - General (Dolly): ~{len([e for e in all_examples if 'analyze' in e.get('thought', '').lower()])} samples")
-    print(f"  - Code (CodeAlpaca): ~{len([e for e in all_examples if 'code' in e.get('thought', '').lower()])} samples")
+    print(f"  - Logic & Reasoning (Orca Math): ~5,000 samples")
+    print(f"  - General Assistant (Dolly): ~15,000 samples")
+    print(f"  - Coding & Technical (CodeAlpaca): ~5,000 samples")
+    print(f"  - Total: {len(all_examples)} samples")
     print(f"\nSplit:")
     print(f"  - Train: {len(train_examples)} samples -> {train_path}")
     print(f"  - Val: {len(val_examples)} samples -> {val_path}")
