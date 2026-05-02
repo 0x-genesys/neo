@@ -9,7 +9,7 @@ import torch
 
 def load_tokenizer():
     """
-    Load the default tokenizer (tiktoken cl100k_base).
+    Load the default tokenizer (tiktoken cl100k_base) with custom special tokens.
     
     Returns:
         Tokenizer wrapper compatible with HuggingFace interface
@@ -19,12 +19,28 @@ def load_tokenizer():
     except ImportError:
         raise ImportError("tiktoken is required. Install with: pip install tiktoken")
     
-    encoding = tiktoken.get_encoding("cl100k_base")
+    # Load the base encoding
+    base = tiktoken.get_encoding("cl100k_base")
     
-    # Get the special tokens that cl100k_base actually supports
-    # cl100k_base has these special tokens built-in:
-    # <|endoftext|>, <|fim_prefix|>, <|fim_middle|>, <|fim_suffix|>, <|endofprompt|>
-    # But NOT <|im_start|> and <|im_end|> - those need to be added
+    # Define our special tokens exactly as specified
+    special_tokens = {
+        "<|endoftext|>": 100257,
+        "<|fim_prefix|>": 100258,
+        "<|fim_middle|>": 100259,
+        "<|fim_suffix|>": 100260,
+        "<|im_start|>": 100264,
+        "<|im_end|>": 100265,
+        "<|endofprompt|>": 100276,
+    }
+    
+    # Create a new encoding by merging base special tokens with our new ones
+    # Use the same name as base for consistency
+    encoding = tiktoken.Encoding(
+        name=base.name,
+        pat_str=base._pat_str,
+        mergeable_ranks=base._mergeable_ranks,
+        special_tokens={**base._special_tokens, **special_tokens}
+    )
     
     # Create a wrapper to match HuggingFace interface
     class TiktokenWrapper:
@@ -33,21 +49,16 @@ def load_tokenizer():
             self.vocab_size = encoding.n_vocab
             self.eos_token = "<|endoftext|>"
             self.pad_token = "<|endoftext|>"
+            
             # Get special token IDs properly
+            # These are now guaranteed to exist because we added them above
             self.eos_token_id = encoding.encode_single_token(self.eos_token)
             self.pad_token_id = self.eos_token_id
+            self.im_start_id = encoding.encode_single_token("<|im_start|>")
+            self.im_end_id = encoding.encode_single_token("<|im_end|>")
             
-            # Check if im_start and im_end are in the vocabulary
-            try:
-                self.im_start_id = encoding.encode_single_token("<|im_start|>")
-                self.im_end_id = encoding.encode_single_token("<|im_end|>")
-                self.has_chat_tokens = True
-                print(f"✅ Chat tokens found: <|im_start|> (ID: {self.im_start_id}), <|im_end|> (ID: {self.im_end_id})")
-            except KeyError:
-                self.has_chat_tokens = False
-                print(f"⚠️  WARNING: <|im_start|> and <|im_end|> not in tiktoken vocabulary!")
-                print(f"   These tokens will be split into characters.")
-                print(f"   Model may not recognize message boundaries correctly.")
+            print(f"✅ Tokenizer loaded with {len(special_tokens)} custom special tokens.")
+            print(f"✅ Chat tokens registered: <|im_start|> (ID: {self.im_start_id}), <|im_end|> (ID: {self.im_end_id})")
         
         def encode(self, text, **kwargs):
             # Always use allowed_special='all' to encode special tokens properly
@@ -60,26 +71,13 @@ def load_tokenizer():
             """
             Add special tokens (compatibility method).
             For tiktoken, special tokens are already in vocabulary.
-            
-            Args:
-                special_tokens_dict: Dictionary of special tokens
-                
-            Returns:
-                Number of tokens added (always 0 for tiktoken)
             """
-            # Tiktoken already has special tokens in vocabulary
-            # This is just for compatibility with HuggingFace interface
             return 0
         
         def save_pretrained(self, save_directory):
             """
             Save tokenizer (compatibility method).
-            For tiktoken, this is a no-op since it's a fixed vocabulary.
-            
-            Args:
-                save_directory: Directory to save to
             """
-            # Tiktoken uses a fixed vocabulary, no need to save
             pass
         
         def __len__(self):

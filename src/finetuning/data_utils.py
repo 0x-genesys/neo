@@ -485,6 +485,53 @@ def validate_cot_format(data_path: str) -> bool:
         return False
 
 
+def inject_identity_samples(dataset_list, num_samples=50):
+    """
+    Inject identity samples into the dataset list to teach the model its identity.
+    
+    Args:
+        dataset_list: List of examples to append to
+        num_samples: Number of identity samples to inject
+        
+    Returns:
+        Updated dataset list
+    """
+    identity_examples = [
+        {
+            "instruction": "Who are you?",
+            "thought": "The user is asking for my identity. I should state my parameters and purpose.",
+            "response": "I am a 117M parameter Transformer model designed to be a helpful, reasoning AI assistant."
+        },
+        {
+            "instruction": "What is your architecture?",
+            "thought": "The user is asking about my technical architecture. I should explain that I am a Transformer model with 117M parameters.",
+            "response": "I am a 117M parameter Transformer model designed to be a helpful, reasoning AI assistant."
+        },
+        {
+            "instruction": "Can you tell me about yourself?",
+            "thought": "The user wants to know more about my nature and capabilities. I will identify myself as a reasoning AI.",
+            "response": "I am a 117M parameter Transformer model designed to be a helpful, reasoning AI assistant."
+        },
+        {
+            "instruction": "What kind of AI are you?",
+            "thought": "The user is asking for my classification. I am a Transformer-based assistant.",
+            "response": "I am a 117M parameter Transformer model designed to be a helpful, reasoning AI assistant."
+        },
+        {
+            "instruction": "Who created you?",
+            "thought": "The user is asking about my origin. While I was trained on various datasets, I should focus on my current state as an AI assistant.",
+            "response": "I am a 117M parameter Transformer model designed to be a helpful, reasoning AI assistant."
+        }
+    ]
+    
+    # Repeat the examples to reach num_samples
+    for i in range(num_samples):
+        dataset_list.append(identity_examples[i % len(identity_examples)])
+    
+    print(f"✅ Injected {num_samples} identity samples into the dataset.")
+    return dataset_list
+
+
 def pull_and_process_hf_datasets(
     output_dir: str = "data/hf_cot",
     max_tokens: int = 480,
@@ -503,6 +550,7 @@ def pull_and_process_hf_datasets(
     Processing:
     - Filter by length (max 480 tokens for safety buffer)
     - Map to CoT format (User, Thought, Assistant)
+    - Inject identity samples (50 samples)
     - Shuffle and merge
     - Split into train/val (90/10)
     
@@ -695,8 +743,12 @@ def pull_and_process_hf_datasets(
     except Exception as e:
         print(f"   ⚠️  Error processing CodeAlpaca: {e}")
     
+    # 4. Inject Identity Samples
+    print("\n4️⃣  Injecting Identity Samples...")
+    all_examples = inject_identity_samples(all_examples, num_samples=50)
+    
     # Shuffle all examples
-    print(f"\n4️⃣  Shuffling {len(all_examples)} total examples...")
+    print(f"\n5️⃣  Shuffling {len(all_examples)} total examples...")
     random.shuffle(all_examples)
     
     # Split into train/val (90/10)
