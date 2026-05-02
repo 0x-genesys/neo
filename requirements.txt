@@ -23,6 +23,13 @@ tokenizers>=0.13.0
 sentencepiece>=0.1.99
 tiktoken>=0.5.0  # For GPT-4 tokenizer support
 
+# Fine-Tuning with LoRA
+peft>=0.5.0  # Parameter-Efficient Fine-Tuning (LoRA, QLoRA, etc.)
+accelerate>=0.20.0  # Distributed training and mixed precision
+bitsandbytes>=0.41.0  # Quantization support (optional, for QLoRA)
+scipy>=1.10.0  # Required for some PEFT operations
+safetensors>=0.3.0  # Safe tensor serialization
+
 # Training utilities
 tqdm>=4.65.0
 pyyaml>=6.0

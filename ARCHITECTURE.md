@@ -128,7 +128,39 @@ Full:         d_model=768, layers=12, heads=12  → 117M params
 - Automatic retry on network failures
 - Local cache management
 
-### 5. Inference Engine (`src/inference.py`)
+### 5. Fine-Tuning System (`src/finetuning/`)
+
+**LoRA (Low-Rank Adaptation)**:
+- Parameter-efficient fine-tuning (1.3% trainable parameters)
+- Adapter layers on attention and MLP projections
+- Rank 16, alpha 32, dropout 0.1
+- Frozen embeddings (100k tokens)
+
+**Chain-of-Thought (CoT) Format**:
+- Special tokens: `<|im_start|>`, `<|im_end|>`
+- Roles: system, user, thought, assistant
+- Explicit reasoning in thought blocks
+- Multi-turn conversation support
+
+**Data Processing**:
+- HuggingFace dataset integration (Orca Math, Dolly, CodeAlpaca)
+- Length filtering (max 480 tokens for safety)
+- CoT format mapping and validation
+- Automatic train/val split (90/10)
+
+**Training Features**:
+- Hardware-adaptive (CUDA, MPS, CPU)
+- Mixed precision (FP16) for CUDA
+- Resume from local or remote checkpoints
+- Automatic upload to HuggingFace Hub
+
+**Model Merging**:
+- Merge LoRA adapter with base model
+- Create standalone .pt file for inference
+- Upload merged model to HuggingFace Hub
+- No PEFT dependency for inference
+
+### 6. Inference Engine (`src/inference.py`)
 
 **Text Generation**:
 - Autoregressive generation
@@ -162,6 +194,24 @@ Configuration → Data Loader → Model → Forward Pass → Loss
 Checkpoint (Local/Remote) → Load Model → Tokenize Input
                                 ↓
                           Generate Tokens → Decode → Output Text
+```
+
+### Fine-Tuning Flow
+
+```
+Base Model (Local/Remote) → Apply LoRA → Freeze Embeddings
+                                ↓
+HF Datasets → Process → CoT Format → Filter by Length
+                                ↓
+                         Train with LoRA
+                                ↓
+                    Save Adapter + Upload to HF Hub
+                                ↓
+              Merge Adapter + Base → Merged Model
+                                ↓
+                    Upload Merged Model to HF Hub
+                                ↓
+                         Inference Ready
 ```
 
 ### Dataset Flow
