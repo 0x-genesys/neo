@@ -174,6 +174,14 @@ class CoTDataset(Dataset):
         # Convert to tensors
         input_ids = torch.tensor(tokens, dtype=torch.long)
         
+        # Validate token IDs are within vocab range
+        vocab_size = len(self.tokenizer)
+        if input_ids.max() >= vocab_size:
+            # This should not happen, but if it does, clamp to valid range
+            print(f"⚠️  Warning: Found token ID {input_ids.max().item()} >= vocab_size {vocab_size}")
+            print(f"   Text preview: {text[:100]}...")
+            input_ids = torch.clamp(input_ids, 0, vocab_size - 1)
+        
         # Create attention mask (1 for real tokens, 0 for padding)
         attention_mask = (input_ids != self.tokenizer.pad_token_id).long()
         

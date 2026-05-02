@@ -377,11 +377,11 @@ class LoRAFineTuner:
             if self.use_amp and self.device.type == "cuda":
                 from torch.amp import autocast
                 with autocast('cuda'):
-                    # Call model with idx (not input_ids) since our model uses idx
-                    outputs = self.model(idx=input_ids, targets=labels)
+                    # Call model with input_ids for PEFT compatibility
+                    outputs = self.model(input_ids=input_ids, targets=labels)
                     logits, loss = outputs
             else:
-                outputs = self.model(idx=input_ids, targets=labels)
+                outputs = self.model(input_ids=input_ids, targets=labels)
                 logits, loss = outputs
             
             # Scale loss for gradient accumulation
@@ -454,10 +454,10 @@ class LoRAFineTuner:
             if self.use_amp and self.device.type == "cuda":
                 from torch.amp import autocast
                 with autocast('cuda'):
-                    outputs = self.model(idx=input_ids, targets=labels)
+                    outputs = self.model(input_ids=input_ids, targets=labels)
                     logits, loss = outputs
             else:
-                outputs = self.model(idx=input_ids, targets=labels)
+                outputs = self.model(input_ids=input_ids, targets=labels)
                 logits, loss = outputs
             
             total_loss += loss.item()

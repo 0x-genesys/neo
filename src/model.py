@@ -202,15 +202,15 @@ class DecoderOnlyTransformer(nn.Module):
             n_params -= self.position_embedding.weight.numel()
         return n_params
 
-    def forward(self, idx=None, targets=None, input_ids=None, attention_mask=None, **kwargs):
+    def forward(self, idx=None, input_ids=None, targets=None, attention_mask=None, **kwargs):
         """
         Forward pass.
         
         Args:
             idx: Input token indices (B, T) - our standard parameter name
             input_ids: Alternative name for idx (for PEFT compatibility)
-            attention_mask: Attention mask (ignored, for PEFT compatibility)
             targets: Target token indices (B, T) for computing loss
+            attention_mask: Attention mask (ignored, for PEFT compatibility)
             **kwargs: Additional arguments (ignored, for PEFT compatibility)
             
         Returns:
