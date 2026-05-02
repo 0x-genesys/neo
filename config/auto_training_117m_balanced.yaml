@@ -31,7 +31,7 @@
 # ============================================================================
 
 model:
-  vocab_size: 100277  # tiktoken cl100k_base (GPT-4)
+  vocab_size: 100277  # tiktoken cl100k_base (GPT-4) - MUST match checkpoint!
   d_model: 768        # Standard GPT-2 Small size
   num_heads: 12       # Maintains head_dim = 768/12 = 64 (optimal)
   num_layers: 12      # Good depth for reasoning
@@ -110,7 +110,7 @@ data:
 # Tokenizer Configuration
 tokenizer:
   type: "tiktoken"
-  vocab_size: 100277
+  vocab_size: 100277  # MUST match model checkpoint!
 
 # Optimization
 optimizer:

@@ -197,16 +197,26 @@ def main():
     tokenizer = load_tokenizer()
     tokenizer = prepare_tokenizer(tokenizer)
     
-    # Verify tokenizer vocab size matches model config
+    # Get actual tokenizer vocab size
     tokenizer_vocab_size = len(tokenizer)
     model_vocab_size = MODEL_CONFIG['vocab_size']
     
+    print(f"\n📊 Vocabulary Size Check:")
+    print(f"   Tokenizer vocab size: {tokenizer_vocab_size}")
+    print(f"   Model config vocab size: {model_vocab_size}")
+    
     if tokenizer_vocab_size != model_vocab_size:
-        print(f"\n⚠️  WARNING: Vocab size mismatch!")
-        print(f"   Tokenizer vocab size: {tokenizer_vocab_size}")
-        print(f"   Model vocab size: {model_vocab_size}")
-        print(f"   Updating model config to match tokenizer...")
-        MODEL_CONFIG['vocab_size'] = tokenizer_vocab_size
+        print(f"\n❌ CRITICAL: Vocab size mismatch!")
+        print(f"   The model was trained with vocab_size={model_vocab_size}")
+        print(f"   But tokenizer has vocab_size={tokenizer_vocab_size}")
+        print(f"\n   This will cause CUDA assertion errors during training.")
+        print(f"   The checkpoint must match the tokenizer vocab size.")
+        print(f"\n   Options:")
+        print(f"   1. Use a checkpoint trained with vocab_size={tokenizer_vocab_size}")
+        print(f"   2. Or update the tokenizer to match the checkpoint")
+        return
+    
+    print(f"✅ Vocab sizes match!")
     
     # ============================================================================
     # Load Pre-trained Model
@@ -237,11 +247,30 @@ def main():
         
         # Handle different checkpoint formats
         if 'model_state_dict' in checkpoint:
-            model.load_state_dict(checkpoint['model_state_dict'])
+            state_dict = checkpoint['model_state_dict']
             print(f"✅ Loaded pre-trained weights (loss: {checkpoint.get('best_val_loss', 'N/A')})")
         else:
-            model.load_state_dict(checkpoint)
+            state_dict = checkpoint
             print(f"✅ Loaded pre-trained weights")
+        
+        # Check vocab size in checkpoint
+        if 'token_embedding.weight' in state_dict:
+            checkpoint_vocab_size = state_dict['token_embedding.weight'].shape[0]
+            print(f"\n📊 Checkpoint vocab size: {checkpoint_vocab_size}")
+            print(f"   Model config vocab size: {MODEL_CONFIG['vocab_size']}")
+            print(f"   Tokenizer vocab size: {tokenizer_vocab_size}")
+            
+            if checkpoint_vocab_size != MODEL_CONFIG['vocab_size']:
+                print(f"\n⚠️  Checkpoint vocab size ({checkpoint_vocab_size}) != config ({MODEL_CONFIG['vocab_size']})")
+                print(f"   Updating model config to match checkpoint...")
+                MODEL_CONFIG['vocab_size'] = checkpoint_vocab_size
+                
+                # Recreate model with correct vocab size
+                model = create_model(config)
+        
+        # Load state dict
+        model.load_state_dict(state_dict)
+        print(f"✅ Model weights loaded successfully")
     else:
         print(f"⚠️  Checkpoint not found: {checkpoint_path}")
         print(f"   Starting from random initialization")
