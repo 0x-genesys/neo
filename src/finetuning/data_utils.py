@@ -160,24 +160,32 @@ class CoTDataset(Dataset):
         # Format conversation
         text = self._format_conversation(example)
         
-        # Tokenize
-        encoding = self.tokenizer(
-            text,
-            max_length=self.max_length,
-            padding='max_length',
-            truncation=True,
-            return_tensors='pt',
-        )
+        # Tokenize using encode method (TiktokenWrapper compatible)
+        tokens = self.tokenizer.encode(text)
+        
+        # Truncate or pad to max_length
+        if len(tokens) > self.max_length:
+            tokens = tokens[:self.max_length]
+        else:
+            # Pad with pad_token_id
+            pad_length = self.max_length - len(tokens)
+            tokens = tokens + [self.tokenizer.pad_token_id] * pad_length
+        
+        # Convert to tensors
+        input_ids = torch.tensor(tokens, dtype=torch.long)
+        
+        # Create attention mask (1 for real tokens, 0 for padding)
+        attention_mask = (input_ids != self.tokenizer.pad_token_id).long()
         
         # Create labels (same as input_ids for causal LM)
         # Mask padding tokens in labels (-100 is ignored by loss)
-        labels = encoding['input_ids'].clone()
+        labels = input_ids.clone()
         labels[labels == self.tokenizer.pad_token_id] = -100
         
         return {
-            'input_ids': encoding['input_ids'].squeeze(0),
-            'attention_mask': encoding['attention_mask'].squeeze(0),
-            'labels': labels.squeeze(0),
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'labels': labels,
         }
 
 
