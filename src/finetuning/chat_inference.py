@@ -433,18 +433,15 @@ class ChatGenerator:
         
         # Prepare stop sequences (tokenized)
         if stop_sequences is None:
-            # Default stop sequences for chat format
-            stop_sequences = [
-                SPECIAL_TOKENS['im_end'],  # End of message
-                '<|im_end|><|im_start|>assistant',  # Prevent multiple assistant turns
-            ]
+            stop_sequences = []
         
-        # Tokenize stop sequences
-        stop_token_ids = []
-        for seq in stop_sequences:
-            tokens = self.tokenizer.encode(seq)
-            if tokens:
-                stop_token_ids.append(tokens)
+        # Get stop token IDs for efficient checking
+        im_end_tokens = self.tokenizer.encode(SPECIAL_TOKENS['im_end'])
+        assistant_tokens = self.tokenizer.encode(SPECIAL_TOKENS['assistant'])
+        
+        # Track whether we've seen the assistant tag
+        seen_assistant_tag = False
+        assistant_end_count = 0
         
         for step in range(max_new_tokens):
             # Crop context if needed to fit within model's context window
@@ -484,26 +481,39 @@ class ChatGenerator:
             # Append to sequence
             idx = torch.cat((idx, idx_next), dim=1)
             
-            # Check for stop sequences
-            # Convert recent tokens to text and check if any stop sequence appears
-            if stop_token_ids:
-                # Get the last N tokens where N is the max length of stop sequences
-                max_stop_len = max(len(seq) for seq in stop_token_ids)
-                recent_tokens = idx[0, -max_stop_len:].tolist()
+            # Smart stopping: Only check when we might be at a stop point
+            # Check if the last token could be part of <|im_end|>
+            last_token = idx_next[0, 0].item()
+            
+            # Quick check: if last token is in im_end sequence, do full check
+            if im_end_tokens and last_token in im_end_tokens:
+                # Decode only the generated part (not the prompt)
+                generated_text = self.tokenizer.decode(idx[0, input_ids.size(1):].tolist())
                 
-                # Check if any stop sequence matches the end of recent tokens
-                for stop_seq in stop_token_ids:
-                    if len(recent_tokens) >= len(stop_seq):
-                        if recent_tokens[-len(stop_seq):] == stop_seq:
-                            # Found stop sequence, stop generating
-                            return idx
+                # Check if we've seen the assistant tag
+                assistant_tag = f"{SPECIAL_TOKENS['im_start']}{SPECIAL_TOKENS['assistant']}"
+                if assistant_tag in generated_text and not seen_assistant_tag:
+                    seen_assistant_tag = True
                 
-                # Also check by decoding (more reliable for multi-token sequences)
-                recent_text = self.tokenizer.decode(recent_tokens)
-                for stop_str in stop_sequences:
-                    if stop_str in recent_text:
-                        # Found stop sequence, stop generating
+                # Stop conditions:
+                # 1. If we've seen assistant tag AND current text ends with <|im_end|>
+                if seen_assistant_tag and generated_text.rstrip().endswith(SPECIAL_TOKENS['im_end']):
+                    # Count <|im_end|> after assistant tag
+                    assistant_end_count += 1
+                    
+                    # Stop after first <|im_end|> following assistant tag
+                    # (This allows thought block to complete before assistant)
+                    if assistant_end_count >= 1:
                         return idx
+                
+                # 2. Check for repetition (multiple assistant tags)
+                if generated_text.count(assistant_tag) > 1:
+                    return idx
+                
+                # 3. Check for user tag (shouldn't happen)
+                user_tag = f"{SPECIAL_TOKENS['im_start']}{SPECIAL_TOKENS['user']}"
+                if user_tag in generated_text:
+                    return idx
         
         return idx
     
