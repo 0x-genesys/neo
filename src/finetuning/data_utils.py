@@ -163,7 +163,10 @@ class CoTDataset(Dataset):
             Dictionary with:
             - input_ids: Token IDs
             - attention_mask: Attention mask
-            - labels: Labels for language modeling (only Thought + Assistant, System + User masked)
+            - labels: Labels for language modeling (same as input_ids for now)
+        
+        Note: Advanced prompt masking disabled for now to ensure correct alignment.
+        The model's forward() handles the standard causal LM setup internally.
         """
         example = self.examples[idx]
         
@@ -171,16 +174,12 @@ class CoTDataset(Dataset):
         text = self._format_conversation(example)
         
         # Tokenize using encode method (TiktokenWrapper compatible)
-        # Use allowed_special='all' to encode special tokens like <|im_start|>, <|im_end|>
         tokens = self.tokenizer.encode(text)
         
-        # CRITICAL: Tiktoken cl100k_base has vocab_size=100256 base + special tokens up to ~100276
-        # But the model was trained with vocab_size=100277
-        # We need to ensure no token ID >= 100277
+        # Vocab size check
         vocab_size = len(self.tokenizer)
         
         # Clamp any out-of-range tokens to vocab_size - 1
-        # This should not happen if tokenizer is configured correctly, but safety check
         tokens = [min(t, vocab_size - 1) for t in tokens]
         
         # Truncate or pad to max_length
@@ -194,65 +193,17 @@ class CoTDataset(Dataset):
         # Convert to tensors
         input_ids = torch.tensor(tokens, dtype=torch.long)
         
-        # Final safety check: ensure all token IDs are within valid range
+        # Final safety check
         if input_ids.max() >= vocab_size:
-            print(f"⚠️  Warning: Found token ID {input_ids.max().item()} >= vocab_size {vocab_size}")
-            print(f"   Clamping to valid range [0, {vocab_size-1}]")
             input_ids = torch.clamp(input_ids, 0, vocab_size - 1)
         
         # Create attention mask (1 for real tokens, 0 for padding)
         attention_mask = (input_ids != self.tokenizer.pad_token_id).long()
         
-        # Create labels with proper masking to prevent "lazy" learning
-        # We only want to train on Thought + Assistant responses, not System + User prompts
+        # Create labels - simple approach for now
+        # Just mask padding, no complex prompt masking
         labels = input_ids.clone()
-        
-        # Mask padding tokens
         labels[labels == self.tokenizer.pad_token_id] = -100
-        
-        # Mask System and User prompts (only train on Thought + Assistant)
-        # Find special token IDs
-        im_start_id = self.tokenizer.encode(SPECIAL_TOKENS['im_start'])[0]
-        im_end_id = self.tokenizer.encode(SPECIAL_TOKENS['im_end'])[0]
-        
-        # Parse the sequence to find System and User sections
-        i = 0
-        while i < len(labels):
-            if labels[i] == im_start_id and i + 1 < len(labels):
-                # Found <|im_start|>, check the role
-                # Roles: system, user, thought, assistant
-                # We want to mask system and user, keep thought and assistant
-                
-                # Find the end of this message
-                end_idx = i + 1
-                while end_idx < len(labels) and labels[end_idx] != im_end_id:
-                    end_idx += 1
-                
-                # Check if this is system or user by looking at the tokens after <|im_start|>
-                # Format: <|im_start|>role\ncontent<|im_end|>
-                # We need to check the role token
-                role_start = i + 1
-                role_end = role_start
-                
-                # Find newline after role (token ID varies, but we can check a few tokens)
-                while role_end < min(role_start + 10, end_idx):
-                    role_end += 1
-                    # Simple heuristic: if we see "thought" or "assistant" in first few tokens, keep it
-                    # Otherwise (system/user), mask it
-                    role_tokens = input_ids[role_start:role_end].tolist()
-                    role_text = self.tokenizer.decode(role_tokens).lower()
-                    
-                    if 'thought' in role_text or 'assistant' in role_text:
-                        # Keep these for training
-                        break
-                    elif 'system' in role_text or 'user' in role_text:
-                        # Mask system and user prompts
-                        labels[i:end_idx+1] = -100
-                        break
-                
-                i = end_idx + 1
-            else:
-                i += 1
         
         return {
             'input_ids': input_ids,

@@ -236,6 +236,7 @@ class LoRAFineTuner:
             bias="none",
             task_type=TaskType.CAUSAL_LM,
             modules_to_save=None,  # Don't save any additional modules
+            init_lora_weights=True,  # CRITICAL: Ensures B matrix initialized to zero
         )
         
         # Apply LoRA
@@ -543,6 +544,26 @@ class LoRAFineTuner:
         print("\n" + "="*80)
         print("🎓 Starting Fine-Tuning")
         print("="*80 + "\n")
+        
+        # Sanity check: Evaluate initial loss before training
+        if self.val_loader:
+            print("🔍 Sanity Check: Evaluating initial loss...")
+            initial_loss = self.evaluate()
+            print(f"   Initial validation loss: {initial_loss:.4f}")
+            
+            if initial_loss > 8.0:
+                print(f"\n⚠️  WARNING: Initial loss is very high ({initial_loss:.4f})!")
+                print(f"   Expected: ~2-3 (close to pre-trained model)")
+                print(f"   Actual: {initial_loss:.4f}")
+                print(f"\n   Possible causes:")
+                print(f"   1. LoRA not initialized correctly (B matrix should be zero)")
+                print(f"   2. Label/input misalignment")
+                print(f"   3. Token ID overflow")
+                print(f"\n   Continuing anyway, but results may be poor...")
+            elif initial_loss < 5.0:
+                print(f"   ✅ Initial loss looks reasonable!")
+            
+            self.model.train()
         
         start_time = time.time()
         
