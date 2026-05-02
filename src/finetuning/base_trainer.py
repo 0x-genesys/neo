@@ -118,52 +118,17 @@ class LoRAFineTuner:
         # Device setup
         self.device = self._setup_device(device)
         
-        # Add config attribute to model for PEFT compatibility
-        # This is required by PEFT but won't interfere with regular training/inference
+        # Verify model has PEFT-required attributes
         if not hasattr(self.model, 'config'):
-            # Extract model parameters
-            vocab_size = getattr(self.model, 'token_embedding', None)
-            if vocab_size is not None:
-                vocab_size = vocab_size.num_embeddings
-            else:
-                vocab_size = 100277  # Default
-            
-            d_model = getattr(self.model, 'd_model', 768)
-            context_length = getattr(self.model, 'context_length', 512)
-            
-            # Count layers
-            num_layers = len(self.model.blocks) if hasattr(self.model, 'blocks') else 12
-            
-            # Infer num_heads from first attention layer
-            num_heads = 12  # Default
-            if hasattr(self.model, 'blocks') and len(self.model.blocks) > 0:
-                first_block = self.model.blocks[0]
-                if hasattr(first_block, 'attn') and hasattr(first_block.attn, 'num_heads'):
-                    num_heads = first_block.attn.num_heads
-            
-            # Use a dict-like object instead of SimpleNamespace for PEFT compatibility
-            class ModelConfig(dict):
-                """Config that acts like both a dict and an object with attributes."""
-                def __init__(self, **kwargs):
-                    super().__init__(**kwargs)
-                    self.__dict__.update(kwargs)
-                
-                def __getattr__(self, key):
-                    try:
-                        return self[key]
-                    except KeyError:
-                        raise AttributeError(f"'ModelConfig' object has no attribute '{key}'")
-                
-                def __setattr__(self, key, value):
-                    self[key] = value
-            
-            self.model.config = ModelConfig(
-                vocab_size=vocab_size,
-                d_model=d_model,
-                num_heads=num_heads,
-                num_layers=num_layers,
-                context_length=context_length,
-                model_type="gpt",  # PEFT uses this to determine model type
+            raise ValueError(
+                "Model must have 'config' attribute for PEFT compatibility. "
+                "Use DecoderOnlyTransformer from src/model.py which includes PEFT support."
+            )
+        
+        if not hasattr(self.model, 'generation_config'):
+            raise ValueError(
+                "Model must have 'generation_config' attribute for PEFT compatibility. "
+                "Use DecoderOnlyTransformer from src/model.py which includes PEFT support."
             )
         
         # Apply LoRA to model

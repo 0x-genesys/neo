@@ -143,6 +143,11 @@ class DecoderOnlyTransformer(nn.Module):
     """
     Production-ready decoder-only transformer for language modeling.
     Similar to GPT architecture.
+    
+    PEFT-Compatible: This model includes required attributes for PEFT/LoRA:
+    - config: Model configuration (required by PEFT for metadata)
+    - generation_config: Generation parameters (required by PEFT generate)
+    - main_input_name: Input parameter name (required by some PEFT wrappers)
     """
     
     def __init__(self, vocab_size, d_model, num_heads, num_layers, 
@@ -151,6 +156,35 @@ class DecoderOnlyTransformer(nn.Module):
         self.context_length = context_length
         self.d_model = d_model
         self.use_gradient_checkpointing = use_gradient_checkpointing
+        
+        # PEFT Compatibility: Create config object
+        # This is required by PEFT for saving/loading adapter metadata
+        from transformers import GenerationConfig
+        from types import SimpleNamespace
+        
+        self.config = SimpleNamespace(
+            vocab_size=vocab_size,
+            hidden_size=d_model,
+            num_hidden_layers=num_layers,
+            num_attention_heads=num_heads,
+            max_position_embeddings=context_length,
+            model_type="gpt",  # PEFT uses this to identify model architecture
+            is_encoder_decoder=False,
+            d_model=d_model,  # Keep our naming too
+            num_heads=num_heads,
+            num_layers=num_layers,
+        )
+        
+        # PEFT Compatibility: Generation config for peft.generate() support
+        self.generation_config = GenerationConfig(
+            max_length=context_length,
+            bos_token_id=0,
+            eos_token_id=vocab_size - 1,
+            pad_token_id=vocab_size - 1,
+        )
+        
+        # PEFT Compatibility: Required by some PEFT wrappers
+        self.main_input_name = "input_ids"
         
         # Token and position embeddings
         self.token_embedding = nn.Embedding(vocab_size, d_model)

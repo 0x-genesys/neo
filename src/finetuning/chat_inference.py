@@ -6,6 +6,7 @@ This script loads a base model with LoRA adapter for Chain-of-Thought inference.
 Supports both local and remote model loading from HuggingFace Hub.
 """
 import torch
+import torch.nn.functional as F
 import sys
 import argparse
 import yaml
@@ -203,30 +204,19 @@ class ChatGenerator:
         
         print(f"✅ Base model loaded")
         
-        # Add config and generation_config attributes for PEFT compatibility
-        # PEFT expects these attributes but our custom model doesn't have them
+        # Verify model has PEFT-required attributes
         if not hasattr(self.model, 'config'):
-            from types import SimpleNamespace
-            vocab_size = self.model.token_embedding.num_embeddings
-            self.model.config = SimpleNamespace(
-                vocab_size=vocab_size,
-                hidden_size=model_config['d_model'],
-                num_hidden_layers=model_config['num_layers'],
-                num_attention_heads=model_config['num_heads'],
-                max_position_embeddings=model_config['context_length'],
-                model_type="gpt",  # PEFT uses this
-                is_encoder_decoder=False,
+            raise ValueError(
+                "Model must have 'config' attribute for PEFT compatibility. "
+                "This model was likely saved with an older version. "
+                "Please re-save the model using the updated DecoderOnlyTransformer."
             )
         
-        # Add generation_config attribute for PEFT compatibility
         if not hasattr(self.model, 'generation_config'):
-            from types import SimpleNamespace
-            vocab_size = self.model.token_embedding.num_embeddings
-            self.model.generation_config = SimpleNamespace(
-                max_length=model_config['context_length'],
-                pad_token_id=vocab_size - 1,
-                eos_token_id=vocab_size - 1,
-                bos_token_id=0,
+            raise ValueError(
+                "Model must have 'generation_config' attribute for PEFT compatibility. "
+                "This model was likely saved with an older version. "
+                "Please re-save the model using the updated DecoderOnlyTransformer."
             )
         
         # Load LoRA adapter
@@ -368,6 +358,76 @@ class ChatGenerator:
         return result
     
     @torch.no_grad()
+    def _generate_with_lora(
+        self,
+        input_ids: torch.Tensor,
+        max_new_tokens: int = 200,
+        temperature: float = 0.7,
+        top_k: int = 50,
+        top_p: float = 0.9,
+    ) -> torch.Tensor:
+        """
+        Custom generation loop that ensures LoRA weights are applied.
+        
+        This method implements autoregressive generation by calling the PEFT model's
+        forward method directly, which includes LoRA adapter weights.
+        
+        Args:
+            input_ids: Starting token indices (B, T)
+            max_new_tokens: Number of tokens to generate
+            temperature: Sampling temperature (higher = more random)
+            top_k: Keep only top k tokens for sampling
+            top_p: Nucleus sampling threshold
+            
+        Returns:
+            Generated token indices (B, T + max_new_tokens)
+        """
+        idx = input_ids.clone()
+        
+        # Get context length from model config
+        max_context = self.model.config.max_position_embeddings
+        
+        for _ in range(max_new_tokens):
+            # Crop context if needed to fit within model's context window
+            idx_cond = idx if idx.size(1) <= max_context else idx[:, -max_context:]
+            
+            # Forward pass through PEFT model (includes LoRA)
+            # This calls the wrapped model's forward, which applies LoRA weights
+            logits, _ = self.model(input_ids=idx_cond)
+            
+            # Get logits for the last position (next token prediction)
+            logits = logits[:, -1, :] / temperature
+            
+            # Apply top-k filtering
+            if top_k is not None:
+                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                logits[logits < v[:, [-1]]] = -float('Inf')
+            
+            # Apply top-p (nucleus) filtering
+            if top_p is not None:
+                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+                cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+                
+                # Remove tokens with cumulative probability above threshold
+                sorted_indices_to_remove = cumulative_probs > top_p
+                # Keep the first token that pushes over threshold
+                sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                sorted_indices_to_remove[..., 0] = 0
+                
+                # Scatter back to original order
+                indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+                logits[indices_to_remove] = -float('Inf')
+            
+            # Sample from distribution
+            probs = F.softmax(logits, dim=-1)
+            idx_next = torch.multinomial(probs, num_samples=1)
+            
+            # Append to sequence
+            idx = torch.cat((idx, idx_next), dim=1)
+        
+        return idx
+    
+    @torch.no_grad()
     def generate(
         self,
         user_message: str,
@@ -414,69 +474,19 @@ class ChatGenerator:
         
         input_ids = torch.tensor([input_ids], dtype=torch.long).to(self.device)
         
-        # Generate using base model's generate method (bypass PEFT wrapper)
-        # PEFT's generate() expects generation_config which our custom model doesn't have
-        if hasattr(self.model, 'base_model'):
-            # PEFT wrapped model - access the base model
-            # But we want the LoRA weights applied, so we need to use the wrapped model
-            # Let's try using the model directly first
-            if debug:
-                print(f"🔍 DEBUG - Model Structure:")
-                print(f"   Model type: {type(self.model).__name__}")
-                print(f"   Has base_model: {hasattr(self.model, 'base_model')}")
-                if hasattr(self.model, 'base_model'):
-                    print(f"   Base model type: {type(self.model.base_model).__name__}")
-                    if hasattr(self.model.base_model, 'model'):
-                        print(f"   Inner model type: {type(self.model.base_model.model).__name__}")
-                print()
-            
-            # Use the PEFT model's forward, not generate
-            # We'll use the base model's generate but with PEFT's forward
-            base_model = self.model.base_model.model
-        else:
-            # Not wrapped
-            base_model = self.model
+        # Generate using custom loop that ensures LoRA weights are applied
+        # We use our own generation loop because PEFT's generate() expects
+        # HuggingFace-style model interface which our custom model doesn't fully implement
+        if debug:
+            print(f"🔍 DEBUG - Using custom generation loop with LoRA weights applied\n")
         
-        # Generate using model with LoRA applied
-        # We need to use the model's forward pass which includes LoRA
-        # But call the base model's generate method with the PEFT model's forward
-        if hasattr(self.model, 'base_model'):
-            # PEFT wrapped model
-            if debug:
-                print(f"🔍 DEBUG - Using PEFT-wrapped model for generation")
-                print(f"   This ensures LoRA weights are applied\n")
-            
-            # Use the base model's generate but it will call the PEFT model's forward
-            # The generate method is on the base model, but forward goes through PEFT
-            model_to_use = self.model.base_model.model
-            
-            # Temporarily replace the model's forward with PEFT's forward
-            original_forward = model_to_use.forward
-            model_to_use.forward = self.model.forward
-            
-            try:
-                output_ids = model_to_use.generate(
-                    input_ids,
-                    max_new_tokens=max_new_tokens,
-                    temperature=temperature,
-                    top_k=top_k,
-                    top_p=top_p,
-                )
-            finally:
-                # Restore original forward
-                model_to_use.forward = original_forward
-        else:
-            # Not wrapped - use directly
-            if debug:
-                print(f"🔍 DEBUG - Using unwrapped model\n")
-            
-            output_ids = self.model.generate(
-                input_ids,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature,
-                top_k=top_k,
-                top_p=top_p,
-            )
+        output_ids = self._generate_with_lora(
+            input_ids,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+        )
         
         if debug:
             print(f"🔍 DEBUG - Generation:")
