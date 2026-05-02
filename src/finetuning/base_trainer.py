@@ -121,7 +121,6 @@ class LoRAFineTuner:
         # Add config attribute to model for PEFT compatibility
         # This is required by PEFT but won't interfere with regular training/inference
         if not hasattr(self.model, 'config'):
-            from types import SimpleNamespace
             # Extract model parameters
             vocab_size = getattr(self.model, 'token_embedding', None)
             if vocab_size is not None:
@@ -142,7 +141,23 @@ class LoRAFineTuner:
                 if hasattr(first_block, 'attn') and hasattr(first_block.attn, 'num_heads'):
                     num_heads = first_block.attn.num_heads
             
-            self.model.config = SimpleNamespace(
+            # Use a dict-like object instead of SimpleNamespace for PEFT compatibility
+            class ModelConfig(dict):
+                """Config that acts like both a dict and an object with attributes."""
+                def __init__(self, **kwargs):
+                    super().__init__(**kwargs)
+                    self.__dict__.update(kwargs)
+                
+                def __getattr__(self, key):
+                    try:
+                        return self[key]
+                    except KeyError:
+                        raise AttributeError(f"'ModelConfig' object has no attribute '{key}'")
+                
+                def __setattr__(self, key, value):
+                    self[key] = value
+            
+            self.model.config = ModelConfig(
                 vocab_size=vocab_size,
                 d_model=d_model,
                 num_heads=num_heads,
