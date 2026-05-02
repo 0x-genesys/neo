@@ -532,8 +532,10 @@ class LoRAFineTuner:
         print(f"💾 Checkpoint saved: {save_path}")
         
         # Upload to HuggingFace Hub if enabled
-        if self.upload_to_hub and is_best:
-            self._upload_checkpoint_to_hub(save_path, name)
+        # Upload best model always, and epoch checkpoints if requested
+        if self.upload_to_hub:
+            if is_best or name.startswith("checkpoint_epoch_"):
+                self._upload_checkpoint_to_hub(save_path, name)
     
     def _upload_checkpoint_to_hub(self, checkpoint_path: Path, name: str):
         """Upload checkpoint to HuggingFace Hub."""
