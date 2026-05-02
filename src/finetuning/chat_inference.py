@@ -203,6 +203,19 @@ class ChatGenerator:
         
         print(f"✅ Base model loaded")
         
+        # Add generation_config attribute for PEFT compatibility
+        # PEFT expects this attribute but our custom model doesn't have it
+        # We'll add a dummy one since we use our own generate() method
+        if not hasattr(self.model, 'generation_config'):
+            from types import SimpleNamespace
+            vocab_size = self.model.token_embedding.num_embeddings
+            self.model.generation_config = SimpleNamespace(
+                max_length=model_config['context_length'],
+                pad_token_id=vocab_size - 1,
+                eos_token_id=vocab_size - 1,
+                bos_token_id=0,
+            )
+        
         # Load LoRA adapter
         print(f"\n📂 Loading LoRA adapter from: {adapter_path}")
         try:
@@ -341,8 +354,16 @@ class ChatGenerator:
         input_ids = self.tokenizer.encode(prompt)
         input_ids = torch.tensor([input_ids], dtype=torch.long).to(self.device)
         
-        # Generate
-        output_ids = self.model.generate(
+        # Generate using base model's generate method (bypass PEFT wrapper)
+        # PEFT's generate() expects generation_config which our custom model doesn't have
+        if hasattr(self.model, 'base_model'):
+            # PEFT wrapped model - access the base model
+            base_model = self.model.base_model.model
+        else:
+            # Not wrapped
+            base_model = self.model
+        
+        output_ids = base_model.generate(
             input_ids,
             max_new_tokens=max_new_tokens,
             temperature=temperature,
