@@ -425,9 +425,23 @@ class LoRAFineTuner:
                     # Call model with input_ids for PEFT compatibility
                     outputs = self.model(input_ids=input_ids, targets=labels)
                     logits, loss = outputs
+                    
+                    # Debug first batch
+                    if batch_idx == 0:
+                        print(f"\n🔍 Forward Pass Debug:")
+                        print(f"   Logits shape: {logits.shape}")
+                        print(f"   Loss value: {loss.item()}")
+                        print(f"   Logits min/max: {logits.min().item():.4f} / {logits.max().item():.4f}")
             else:
                 outputs = self.model(input_ids=input_ids, targets=labels)
                 logits, loss = outputs
+                
+                # Debug first batch
+                if batch_idx == 0:
+                    print(f"\n🔍 Forward Pass Debug:")
+                    print(f"   Logits shape: {logits.shape}")
+                    print(f"   Loss value: {loss.item()}")
+                    print(f"   Logits min/max: {logits.min().item():.4f} / {logits.max().item():.4f}")
             
             # Scale loss for gradient accumulation
             loss = loss / self.gradient_accumulation_steps

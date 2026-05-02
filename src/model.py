@@ -248,11 +248,11 @@ class DecoderOnlyTransformer(nn.Module):
         loss = None
         if targets is not None:
             # Flatten batch and time dimensions for cross-entropy;
-            # ignore_index=-1 allows padding positions to be masked out
+            # ignore_index=-100 is the standard for HuggingFace (matches our labels)
             loss = F.cross_entropy(
                 logits.view(-1, logits.size(-1)),
                 targets.view(-1),
-                ignore_index=-1
+                ignore_index=-100
             )
         
         return logits, loss
