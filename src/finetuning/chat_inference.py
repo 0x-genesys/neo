@@ -285,21 +285,29 @@ class ChatGenerator:
         
         return '\n'.join(prompt_parts)
     
-    def parse_response(self, generated_text: str) -> dict:
+    def parse_response(self, generated_text: str, debug: bool = False) -> dict:
         """
         Parse generated text into thought and assistant response.
         
         Args:
             generated_text: Generated text from model
+            debug: Whether to print debug information
             
         Returns:
-            Dictionary with 'thought' and 'response' keys
+            Dictionary with 'thought', 'response', and 'full_text' keys
         """
         result = {
             'thought': '',
             'response': '',
             'full_text': generated_text
         }
+        
+        if debug:
+            print(f"\n{'='*80}")
+            print("🔍 DEBUG - Raw Generated Text:")
+            print(f"{'='*80}")
+            print(generated_text)
+            print(f"{'='*80}\n")
         
         # Extract thought block
         thought_start = f"{SPECIAL_TOKENS['im_start']}{SPECIAL_TOKENS['thought']}\n"
@@ -309,6 +317,13 @@ class ChatGenerator:
             thought_section = generated_text.split(thought_start)[1]
             if thought_end in thought_section:
                 result['thought'] = thought_section.split(thought_end)[0].strip()
+            else:
+                # Model generated thought but no end tag - take everything until next tag or end
+                next_tag = f"{SPECIAL_TOKENS['im_start']}"
+                if next_tag in thought_section:
+                    result['thought'] = thought_section.split(next_tag)[0].strip()
+                else:
+                    result['thought'] = thought_section.strip()
         
         # Extract assistant response
         assistant_start = f"{SPECIAL_TOKENS['im_start']}{SPECIAL_TOKENS['assistant']}\n"
@@ -318,6 +333,26 @@ class ChatGenerator:
             assistant_section = generated_text.split(assistant_start)[1]
             if assistant_end in assistant_section:
                 result['response'] = assistant_section.split(assistant_end)[0].strip()
+            else:
+                # Model generated assistant but no end tag - take everything
+                result['response'] = assistant_section.strip()
+        else:
+            # FALLBACK: Model didn't generate assistant tag
+            # Check if there's content after thought block
+            if result['thought'] and thought_end in generated_text:
+                # Take everything after thought end as response
+                after_thought = generated_text.split(thought_end, 1)[1].strip()
+                if after_thought:
+                    result['response'] = after_thought
+            elif not result['thought']:
+                # No thought, no assistant tag - use everything after user message
+                user_end = f"{SPECIAL_TOKENS['im_end']}"
+                if user_end in generated_text:
+                    parts = generated_text.split(user_end)
+                    if len(parts) > 2:  # System, User, then response
+                        result['response'] = parts[-1].strip()
+        
+        return result
             else:
                 result['response'] = assistant_section.strip()
         
@@ -332,6 +367,7 @@ class ChatGenerator:
         top_k: int = 50,
         top_p: float = 0.9,
         show_thought: bool = True,
+        debug: bool = False,
     ) -> dict:
         """
         Generate response to user message.
@@ -343,6 +379,7 @@ class ChatGenerator:
             top_k: Top-k sampling
             top_p: Nucleus sampling
             show_thought: Whether to show thought process
+            debug: Whether to print debug information
             
         Returns:
             Dictionary with 'thought', 'response', and 'full_text'
@@ -350,8 +387,22 @@ class ChatGenerator:
         # Format prompt
         prompt = self.format_prompt(user_message, include_thought=True)
         
+        if debug:
+            print(f"\n{'='*80}")
+            print("🔍 DEBUG - Formatted Prompt:")
+            print(f"{'='*80}")
+            print(prompt)
+            print(f"{'='*80}\n")
+        
         # Tokenize
         input_ids = self.tokenizer.encode(prompt)
+        
+        if debug:
+            print(f"🔍 DEBUG - Tokenization:")
+            print(f"   Input length: {len(input_ids)} tokens")
+            print(f"   First 10 tokens: {input_ids[:10]}")
+            print(f"   Last 10 tokens: {input_ids[-10:]}\n")
+        
         input_ids = torch.tensor([input_ids], dtype=torch.long).to(self.device)
         
         # Generate using base model's generate method (bypass PEFT wrapper)
@@ -371,11 +422,16 @@ class ChatGenerator:
             top_p=top_p,
         )
         
+        if debug:
+            print(f"🔍 DEBUG - Generation:")
+            print(f"   Output length: {len(output_ids[0])} tokens")
+            print(f"   Generated {len(output_ids[0]) - len(input_ids[0])} new tokens\n")
+        
         # Decode
         generated_text = self.tokenizer.decode(output_ids[0].tolist())
         
         # Parse response
-        result = self.parse_response(generated_text)
+        result = self.parse_response(generated_text, debug=debug)
         
         return result
     
@@ -386,6 +442,7 @@ class ChatGenerator:
         top_k: int = 50,
         top_p: float = 0.9,
         show_thought: bool = True,
+        debug: bool = False,
     ):
         """
         Run interactive chat mode.
@@ -396,6 +453,7 @@ class ChatGenerator:
             top_k: Top-k sampling
             top_p: Nucleus sampling
             show_thought: Whether to show thought process
+            debug: Whether to enable debug mode
         """
         print("\n" + "="*80)
         print("💬 Interactive Chat Mode")
@@ -405,6 +463,7 @@ class ChatGenerator:
         print("  - 'quit' or 'exit' to stop")
         print("  - 'config' to see current settings")
         print("  - 'thought on/off' to toggle thought display")
+        print("  - 'debug on/off' to toggle debug mode")
         print("  - 'set <param> <value>' to change settings")
         print("="*80 + "\n")
         
@@ -414,6 +473,7 @@ class ChatGenerator:
             'top_k': top_k,
             'top_p': top_p,
             'show_thought': show_thought,
+            'debug': debug,
         }
         
         while True:
@@ -441,6 +501,16 @@ class ChatGenerator:
                     elif toggle == 'off':
                         settings['show_thought'] = False
                         print("✅ Thought display disabled")
+                    continue
+                
+                if user_input.lower().startswith('debug '):
+                    toggle = user_input.split()[1].lower()
+                    if toggle == 'on':
+                        settings['debug'] = True
+                        print("✅ Debug mode enabled")
+                    elif toggle == 'off':
+                        settings['debug'] = False
+                        print("✅ Debug mode disabled")
                     continue
                 
                 if user_input.lower().startswith('set '):
@@ -472,6 +542,7 @@ class ChatGenerator:
                     top_k=settings['top_k'],
                     top_p=settings['top_p'],
                     show_thought=settings['show_thought'],
+                    debug=settings.get('debug', False),
                 )
                 
                 # Display thought if enabled
@@ -479,7 +550,14 @@ class ChatGenerator:
                     print(f"\n💭 [Thought: {result['thought']}]\n")
                 
                 # Display response
-                print(result['response'])
+                if result['response']:
+                    print(result['response'])
+                else:
+                    # No response parsed - show raw output for debugging
+                    print("\n⚠️  No response parsed. Raw output:")
+                    print(f"{'='*80}")
+                    print(result['full_text'])
+                    print(f"{'='*80}")
                 
             except KeyboardInterrupt:
                 print("\n\n👋 Goodbye!")
@@ -627,6 +705,11 @@ Examples:
         action='store_true',
         help='Show thought process'
     )
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='Enable debug mode (show raw generation output)'
+    )
     
     args = parser.parse_args()
     
@@ -655,6 +738,7 @@ Examples:
             top_k=args.top_k,
             top_p=args.top_p,
             show_thought=args.show_thought,
+            debug=args.debug,
         )
     elif args.prompt:
         result = generator.generate(
@@ -664,6 +748,7 @@ Examples:
             top_k=args.top_k,
             top_p=args.top_p,
             show_thought=args.show_thought,
+            debug=args.debug,
         )
         
         print("\n" + "="*80)
