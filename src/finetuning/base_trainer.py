@@ -373,6 +373,34 @@ class LoRAFineTuner:
             attention_mask = batch['attention_mask'].to(self.device)
             labels = batch['labels'].to(self.device)
             
+            # Debug: Check for out-of-range token IDs in first batch
+            if batch_idx == 0:
+                vocab_size = self.model.config.vocab_size if hasattr(self.model, 'config') else 100277
+                max_input_id = input_ids.max().item()
+                max_label_id = labels[labels != -100].max().item() if (labels != -100).any() else -1
+                
+                print(f"\n🔍 First Batch Debug Info:")
+                print(f"   Model vocab size: {vocab_size}")
+                print(f"   Max input_id: {max_input_id}")
+                print(f"   Max label_id: {max_label_id}")
+                print(f"   Input shape: {input_ids.shape}")
+                print(f"   Labels shape: {labels.shape}")
+                
+                if max_input_id >= vocab_size:
+                    print(f"\n❌ ERROR: Found input token ID {max_input_id} >= vocab_size {vocab_size}")
+                    print(f"   This will cause CUDA assertion errors!")
+                    # Find which tokens are out of range
+                    bad_tokens = (input_ids >= vocab_size).sum().item()
+                    print(f"   Number of out-of-range tokens: {bad_tokens}")
+                    raise ValueError(f"Token IDs exceed vocab size: {max_input_id} >= {vocab_size}")
+                
+                if max_label_id >= vocab_size:
+                    print(f"\n❌ ERROR: Found label token ID {max_label_id} >= vocab_size {vocab_size}")
+                    print(f"   This will cause CUDA assertion errors!")
+                    bad_labels = (labels >= vocab_size).sum().item()
+                    print(f"   Number of out-of-range labels: {bad_labels}")
+                    raise ValueError(f"Label IDs exceed vocab size: {max_label_id} >= {vocab_size}")
+            
             # Forward pass with mixed precision
             if self.use_amp and self.device.type == "cuda":
                 from torch.amp import autocast

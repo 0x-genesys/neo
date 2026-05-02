@@ -161,7 +161,17 @@ class CoTDataset(Dataset):
         text = self._format_conversation(example)
         
         # Tokenize using encode method (TiktokenWrapper compatible)
+        # Use allowed_special='all' to encode special tokens like <|im_start|>, <|im_end|>
         tokens = self.tokenizer.encode(text)
+        
+        # CRITICAL: Tiktoken cl100k_base has vocab_size=100256 base + special tokens up to ~100276
+        # But the model was trained with vocab_size=100277
+        # We need to ensure no token ID >= 100277
+        vocab_size = len(self.tokenizer)
+        
+        # Clamp any out-of-range tokens to vocab_size - 1
+        # This should not happen if tokenizer is configured correctly, but safety check
+        tokens = [min(t, vocab_size - 1) for t in tokens]
         
         # Truncate or pad to max_length
         if len(tokens) > self.max_length:
@@ -174,12 +184,10 @@ class CoTDataset(Dataset):
         # Convert to tensors
         input_ids = torch.tensor(tokens, dtype=torch.long)
         
-        # Validate token IDs are within vocab range
-        vocab_size = len(self.tokenizer)
+        # Final safety check: ensure all token IDs are within valid range
         if input_ids.max() >= vocab_size:
-            # This should not happen, but if it does, clamp to valid range
             print(f"⚠️  Warning: Found token ID {input_ids.max().item()} >= vocab_size {vocab_size}")
-            print(f"   Text preview: {text[:100]}...")
+            print(f"   Clamping to valid range [0, {vocab_size-1}]")
             input_ids = torch.clamp(input_ids, 0, vocab_size - 1)
         
         # Create attention mask (1 for real tokens, 0 for padding)
@@ -240,20 +248,44 @@ def prepare_tokenizer(tokenizer):
     """
     Prepare tokenizer with special tokens for CoT.
     
-    For tiktoken tokenizers, special tokens are already in the vocabulary.
+    For tiktoken, special tokens are already in the vocabulary.
     This function just validates and sets up padding.
     """
-    # For tiktoken, special tokens like <|im_start|> and <|im_end|> are already in vocab
-    # Just ensure pad token is set
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    # For tiktoken cl100k_base:
+    # - Base vocab: 0-100255 (100256 tokens)
+    # - Special tokens: 100256-100276 (includes <|endoftext|>, <|im_start|>, <|im_end|>, etc.)
+    # - Total vocab reported by n_vocab: 100277
+    
+    # CRITICAL FIX: The pad_token_id must be < vocab_size
+    # tiktoken's <|endoftext|> has ID 100257, but if model vocab_size=100277, this is valid
+    # However, we should use the EOS token ID from tiktoken directly
+    
+    vocab_size = len(tokenizer)
+    
+    # Get the actual <|endoftext|> token ID from tiktoken
+    # For cl100k_base, this should be 100257
+    eos_id = tokenizer.eos_token_id
+    
+    # Ensure pad token ID is within valid range
+    if eos_id >= vocab_size:
+        print(f"⚠️  WARNING: EOS token ID {eos_id} >= vocab_size {vocab_size}")
+        print(f"   Using vocab_size - 1 as pad token instead")
+        tokenizer.pad_token_id = vocab_size - 1
+        tokenizer.eos_token_id = vocab_size - 1
+    else:
+        # Use EOS token as pad token (standard practice)
+        tokenizer.pad_token_id = eos_id
     
     print(f"✅ Tokenizer prepared:")
     print(f"   Added 0 special tokens (already in tiktoken vocab)")
-    print(f"   Vocabulary size: {len(tokenizer)}")
+    print(f"   Vocabulary size: {vocab_size}")
     print(f"   PAD token: {tokenizer.pad_token} (ID: {tokenizer.pad_token_id})")
     print(f"   EOS token: {tokenizer.eos_token} (ID: {tokenizer.eos_token_id})")
     print(f"   Special tokens: {SPECIAL_TOKENS['im_start']}, {SPECIAL_TOKENS['im_end']}")
+    
+    # Validate pad token is in range
+    if tokenizer.pad_token_id >= vocab_size:
+        raise ValueError(f"Pad token ID {tokenizer.pad_token_id} >= vocab_size {vocab_size}!")
     
     return tokenizer
 
