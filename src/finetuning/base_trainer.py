@@ -118,6 +118,39 @@ class LoRAFineTuner:
         # Device setup
         self.device = self._setup_device(device)
         
+        # Add config attribute to model for PEFT compatibility
+        # This is required by PEFT but won't interfere with regular training/inference
+        if not hasattr(self.model, 'config'):
+            from types import SimpleNamespace
+            # Extract model parameters
+            vocab_size = getattr(self.model, 'token_embedding', None)
+            if vocab_size is not None:
+                vocab_size = vocab_size.num_embeddings
+            else:
+                vocab_size = 100277  # Default
+            
+            d_model = getattr(self.model, 'd_model', 768)
+            context_length = getattr(self.model, 'context_length', 512)
+            
+            # Count layers
+            num_layers = len(self.model.blocks) if hasattr(self.model, 'blocks') else 12
+            
+            # Infer num_heads from first attention layer
+            num_heads = 12  # Default
+            if hasattr(self.model, 'blocks') and len(self.model.blocks) > 0:
+                first_block = self.model.blocks[0]
+                if hasattr(first_block, 'attn') and hasattr(first_block.attn, 'num_heads'):
+                    num_heads = first_block.attn.num_heads
+            
+            self.model.config = SimpleNamespace(
+                vocab_size=vocab_size,
+                d_model=d_model,
+                num_heads=num_heads,
+                num_layers=num_layers,
+                context_length=context_length,
+                model_type="gpt",  # PEFT uses this to determine model type
+            )
+        
         # Apply LoRA to model
         self.model = self._apply_lora()
         
@@ -342,8 +375,8 @@ class LoRAFineTuner:
             
             # Forward pass with mixed precision
             if self.use_amp and self.device.type == "cuda":
-                from torch.cuda.amp import autocast
-                with autocast():
+                from torch.amp import autocast
+                with autocast('cuda'):
                     outputs = self.model(input_ids, targets=labels)
                     logits, loss = outputs
             else:
@@ -418,8 +451,8 @@ class LoRAFineTuner:
             labels = batch['labels'].to(self.device)
             
             if self.use_amp and self.device.type == "cuda":
-                from torch.cuda.amp import autocast
-                with autocast():
+                from torch.amp import autocast
+                with autocast('cuda'):
                     outputs = self.model(input_ids, targets=labels)
                     logits, loss = outputs
             else:
