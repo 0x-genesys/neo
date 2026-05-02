@@ -21,6 +21,11 @@ def load_tokenizer():
     
     encoding = tiktoken.get_encoding("cl100k_base")
     
+    # Get the special tokens that cl100k_base actually supports
+    # cl100k_base has these special tokens built-in:
+    # <|endoftext|>, <|fim_prefix|>, <|fim_middle|>, <|fim_suffix|>, <|endofprompt|>
+    # But NOT <|im_start|> and <|im_end|> - those need to be added
+    
     # Create a wrapper to match HuggingFace interface
     class TiktokenWrapper:
         def __init__(self, encoding):
@@ -31,8 +36,21 @@ def load_tokenizer():
             # Get special token IDs properly
             self.eos_token_id = encoding.encode_single_token(self.eos_token)
             self.pad_token_id = self.eos_token_id
+            
+            # Check if im_start and im_end are in the vocabulary
+            try:
+                self.im_start_id = encoding.encode_single_token("<|im_start|>")
+                self.im_end_id = encoding.encode_single_token("<|im_end|>")
+                self.has_chat_tokens = True
+                print(f"✅ Chat tokens found: <|im_start|> (ID: {self.im_start_id}), <|im_end|> (ID: {self.im_end_id})")
+            except KeyError:
+                self.has_chat_tokens = False
+                print(f"⚠️  WARNING: <|im_start|> and <|im_end|> not in tiktoken vocabulary!")
+                print(f"   These tokens will be split into characters.")
+                print(f"   Model may not recognize message boundaries correctly.")
         
         def encode(self, text, **kwargs):
+            # Always use allowed_special='all' to encode special tokens properly
             return self.encoding.encode(text, allowed_special='all')
         
         def decode(self, tokens, **kwargs):

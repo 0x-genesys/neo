@@ -405,26 +405,80 @@ class ChatGenerator:
         # PEFT's generate() expects generation_config which our custom model doesn't have
         if hasattr(self.model, 'base_model'):
             # PEFT wrapped model - access the base model
+            # But we want the LoRA weights applied, so we need to use the wrapped model
+            # Let's try using the model directly first
+            if debug:
+                print(f"🔍 DEBUG - Model Structure:")
+                print(f"   Model type: {type(self.model).__name__}")
+                print(f"   Has base_model: {hasattr(self.model, 'base_model')}")
+                if hasattr(self.model, 'base_model'):
+                    print(f"   Base model type: {type(self.model.base_model).__name__}")
+                    if hasattr(self.model.base_model, 'model'):
+                        print(f"   Inner model type: {type(self.model.base_model.model).__name__}")
+                print()
+            
+            # Use the PEFT model's forward, not generate
+            # We'll use the base model's generate but with PEFT's forward
             base_model = self.model.base_model.model
         else:
             # Not wrapped
             base_model = self.model
         
-        output_ids = base_model.generate(
-            input_ids,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_k=top_k,
-            top_p=top_p,
-        )
+        # Generate using model with LoRA applied
+        # We need to use the model's forward pass which includes LoRA
+        # But call the base model's generate method with the PEFT model's forward
+        if hasattr(self.model, 'base_model'):
+            # PEFT wrapped model
+            if debug:
+                print(f"🔍 DEBUG - Using PEFT-wrapped model for generation")
+                print(f"   This ensures LoRA weights are applied\n")
+            
+            # Use the base model's generate but it will call the PEFT model's forward
+            # The generate method is on the base model, but forward goes through PEFT
+            model_to_use = self.model.base_model.model
+            
+            # Temporarily replace the model's forward with PEFT's forward
+            original_forward = model_to_use.forward
+            model_to_use.forward = self.model.forward
+            
+            try:
+                output_ids = model_to_use.generate(
+                    input_ids,
+                    max_new_tokens=max_new_tokens,
+                    temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
+                )
+            finally:
+                # Restore original forward
+                model_to_use.forward = original_forward
+        else:
+            # Not wrapped - use directly
+            if debug:
+                print(f"🔍 DEBUG - Using unwrapped model\n")
+            
+            output_ids = self.model.generate(
+                input_ids,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+            )
         
         if debug:
             print(f"🔍 DEBUG - Generation:")
+            print(f"   Input length: {len(input_ids[0])} tokens")
             print(f"   Output length: {len(output_ids[0])} tokens")
-            print(f"   Generated {len(output_ids[0]) - len(input_ids[0])} new tokens\n")
+            print(f"   Generated {len(output_ids[0]) - len(input_ids[0])} new tokens")
+            print(f"   Output shape: {output_ids.shape}")
+            print(f"   First 10 output tokens: {output_ids[0][:10].tolist()}")
+            print(f"   Last 10 output tokens: {output_ids[0][-10:].tolist()}\n")
         
         # Decode
         generated_text = self.tokenizer.decode(output_ids[0].tolist())
+        
+        if debug:
+            print(f"🔍 DEBUG - Decoded length: {len(generated_text)} characters\n")
         
         # Parse response
         result = self.parse_response(generated_text, debug=debug)
