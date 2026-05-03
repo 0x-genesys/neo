@@ -1,6 +1,14 @@
 import torch
 import yaml
 from pathlib import Path
+
+
+import sys
+
+# Add parent directory to path
+sys.path.append(str(Path(__file__).parent.parent))
+
+
 from src.model import create_model
 from peft import LoraConfig, get_peft_model
 
