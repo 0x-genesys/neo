@@ -154,6 +154,7 @@ generation:
   temperature: 0.8
   top_k: 50
   top_p: 0.95
+  repetition_penalty: 1.2
   num_samples: 3
 
 # ============================================================================

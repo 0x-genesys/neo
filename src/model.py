@@ -173,6 +173,7 @@ class DecoderOnlyTransformer(nn.Module):
             d_model=d_model,  
             num_heads=num_heads,
             num_layers=num_layers,
+            _name_or_path="0x-genesys/neo_weights_checkpoints"
         )
         
         # PEFT Compatibility: Generation config for peft.generate() support
@@ -312,7 +313,7 @@ class DecoderOnlyTransformer(nn.Module):
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, top_p=None):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, top_p=None, repetition_penalty=1.2):
         """
         Generate new tokens autoregressively.
         
@@ -322,6 +323,7 @@ class DecoderOnlyTransformer(nn.Module):
             temperature: Sampling temperature (higher = more random)
             top_k: Keep only top k tokens for sampling
             top_p: Nucleus sampling threshold
+            repetition_penalty: Penalty for previously generated tokens (1.0 = disabled)
             
         Returns:
             Generated token indices (B, T + max_new_tokens)
@@ -335,6 +337,16 @@ class DecoderOnlyTransformer(nn.Module):
             # Get logits for the last position only — that's the next-token distribution
             logits, _ = self(idx_cond)
             logits = logits[:, -1, :] / temperature  # divide by temperature before sampling
+
+            # Apply repetition penalty before top-k/top-p filtering
+            if repetition_penalty != 1.0:
+                for i in range(idx.shape[0]):
+                    generated_tokens = torch.unique(idx[i])
+                    logits[i, generated_tokens] = torch.where(
+                        logits[i, generated_tokens] < 0,
+                        logits[i, generated_tokens] * repetition_penalty,
+                        logits[i, generated_tokens] / repetition_penalty
+                    )
             
             # Apply top-k filtering
             # Apply top-k filtering: zero out all logits below the k-th highest value
@@ -403,4 +415,3 @@ def create_model(config):
         print("✅ Gradient checkpointing enabled (saves memory, slightly slower)")
     
     return model
-

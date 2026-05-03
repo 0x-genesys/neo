@@ -612,7 +612,8 @@ class Trainer:
                 max_new_tokens=self.config['generation']['max_new_tokens'],
                 temperature=self.config['generation']['temperature'],
                 top_k=self.config['generation']['top_k'],
-                top_p=self.config['generation']['top_p']
+                top_p=self.config['generation']['top_p'],
+                repetition_penalty=self.config['generation'].get('repetition_penalty', 1.2),
             )
             
             # Decode

@@ -430,6 +430,7 @@ class ChatGenerator:
         temperature: float = 0.7,
         top_k: int = 50,
         top_p: float = 0.9,
+        repetition_penalty: float = 1.2,
     ) -> torch.Tensor:
         """
         Custom generation loop that ensures LoRA weights are applied.
@@ -440,6 +441,7 @@ class ChatGenerator:
             temperature: Sampling temperature
             top_k: Top-k sampling
             top_p: Nucleus sampling
+            repetition_penalty: Penalty for previously generated tokens (1.0 = disabled)
             
         Returns:
             Generated token indices (B, T + max_new_tokens)
@@ -456,6 +458,15 @@ class ChatGenerator:
             
             logits, _ = self.model(input_ids=idx_cond)
             logits = logits[:, -1, :] / temperature
+
+            if repetition_penalty != 1.0:
+                for i in range(idx.shape[0]):
+                    generated_tokens = torch.unique(idx[i])
+                    logits[i, generated_tokens] = torch.where(
+                        logits[i, generated_tokens] < 0,
+                        logits[i, generated_tokens] * repetition_penalty,
+                        logits[i, generated_tokens] / repetition_penalty
+                    )
             
             if top_k is not None:
                 v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
@@ -490,6 +501,7 @@ class ChatGenerator:
         temperature: float = 0.7,
         top_k: int = 50,
         top_p: float = 0.9,
+        repetition_penalty: float = 1.2,
         show_thought: bool = True,
         debug: bool = False,
     ) -> dict:
@@ -502,6 +514,7 @@ class ChatGenerator:
             temperature: Sampling temperature
             top_k: Top-k sampling
             top_p: Nucleus sampling
+            repetition_penalty: Penalty for previously generated tokens (1.0 = disabled)
             show_thought: Whether to show thought process
             debug: Whether to print debug information
             
@@ -541,6 +554,7 @@ class ChatGenerator:
             temperature=temperature,
             top_k=top_k,
             top_p=top_p,
+            repetition_penalty=repetition_penalty,
         )
         
         if debug:
@@ -569,6 +583,7 @@ class ChatGenerator:
         temperature: float = 0.7,
         top_k: int = 50,
         top_p: float = 0.9,
+        repetition_penalty: float = 1.2,
         show_thought: bool = True,
         debug: bool = False,
     ):
@@ -580,6 +595,7 @@ class ChatGenerator:
             temperature: Sampling temperature
             top_k: Top-k sampling
             top_p: Nucleus sampling
+            repetition_penalty: Penalty for previously generated tokens (1.0 = disabled)
             show_thought: Whether to show thought process
             debug: Whether to enable debug mode
         """
@@ -600,6 +616,7 @@ class ChatGenerator:
             'temperature': temperature,
             'top_k': top_k,
             'top_p': top_p,
+            'repetition_penalty': repetition_penalty,
             'show_thought': show_thought,
             'debug': debug,
         }
@@ -669,6 +686,7 @@ class ChatGenerator:
                     temperature=settings['temperature'],
                     top_k=settings['top_k'],
                     top_p=settings['top_p'],
+                    repetition_penalty=settings['repetition_penalty'],
                     show_thought=settings['show_thought'],
                     debug=settings.get('debug', False),
                 )
@@ -829,6 +847,12 @@ Examples:
         help='Nucleus sampling'
     )
     parser.add_argument(
+        '--repetition-penalty',
+        type=float,
+        default=1.2,
+        help='Penalty for repeated tokens (1.0 disables)'
+    )
+    parser.add_argument(
         '--show-thought',
         action='store_true',
         help='Show thought process'
@@ -865,6 +889,7 @@ Examples:
             temperature=args.temperature,
             top_k=args.top_k,
             top_p=args.top_p,
+            repetition_penalty=args.repetition_penalty,
             show_thought=args.show_thought,
             debug=args.debug,
         )
@@ -875,6 +900,7 @@ Examples:
             temperature=args.temperature,
             top_k=args.top_k,
             top_p=args.top_p,
+            repetition_penalty=args.repetition_penalty,
             show_thought=args.show_thought,
             debug=args.debug,
         )

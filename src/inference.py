@@ -162,6 +162,7 @@ class TextGenerator:
         temperature=0.8,
         top_k=50,
         top_p=0.95,
+        repetition_penalty=1.2,
         num_return_sequences=1,
         stop_tokens=None
     ):
@@ -174,6 +175,7 @@ class TextGenerator:
             temperature: Sampling temperature (higher = more random)
             top_k: Keep only top k tokens for sampling
             top_p: Nucleus sampling threshold
+            repetition_penalty: Penalty for previously generated tokens (1.0 = disabled)
             num_return_sequences: Number of sequences to generate
             stop_tokens: List of tokens to stop generation
             
@@ -192,7 +194,8 @@ class TextGenerator:
             max_new_tokens=max_new_tokens,
             temperature=temperature,
             top_k=top_k,
-            top_p=top_p
+            top_p=top_p,
+            repetition_penalty=repetition_penalty
         )
         
         # Decode
@@ -222,12 +225,15 @@ class TextGenerator:
         print("Type 'config' to see current generation settings.")
         print("="*80 + "\n")
         
+        generation_config = self.config.get('generation', {})
+
         # Default settings
         settings = {
-            'max_new_tokens': 100,
-            'temperature': 0.8,
-            'top_k': 50,
-            'top_p': 0.95
+            'max_new_tokens': generation_config.get('max_new_tokens', 100),
+            'temperature': generation_config.get('temperature', 0.8),
+            'top_k': generation_config.get('top_k', 50),
+            'top_p': generation_config.get('top_p', 0.95),
+            'repetition_penalty': generation_config.get('repetition_penalty', 1.2),
         }
         
         while True:
@@ -272,7 +278,8 @@ class TextGenerator:
                     max_new_tokens=settings['max_new_tokens'],
                     temperature=settings['temperature'],
                     top_k=settings['top_k'],
-                    top_p=settings['top_p']
+                    top_p=settings['top_p'],
+                    repetition_penalty=settings['repetition_penalty'],
                 )
                 
                 print("\n" + "-"*80)
@@ -342,6 +349,7 @@ def main():
     parser.add_argument('--temperature', type=float, default=0.8, help='Sampling temperature')
     parser.add_argument('--top-k', type=int, default=50, help='Top-k sampling')
     parser.add_argument('--top-p', type=float, default=0.95, help='Nucleus sampling threshold')
+    parser.add_argument('--repetition-penalty', type=float, default=1.2, help='Penalty for repeated tokens (1.0 disables)')
     parser.add_argument('--num-samples', type=int, default=1, help='Number of samples to generate')
     
     args = parser.parse_args()
@@ -368,6 +376,7 @@ def main():
             temperature=args.temperature,
             top_k=args.top_k,
             top_p=args.top_p,
+            repetition_penalty=args.repetition_penalty,
             num_return_sequences=args.num_samples
         )
         
