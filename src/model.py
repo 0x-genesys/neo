@@ -159,18 +159,18 @@ class DecoderOnlyTransformer(nn.Module):
         
         # PEFT Compatibility: Create config object
         # This is required by PEFT for saving/loading adapter metadata
-        from transformers import GenerationConfig
-        from types import SimpleNamespace
+        from transformers import GenerationConfig, PretrainedConfig
         
-        self.config = SimpleNamespace(
+        # Use PretrainedConfig instead of SimpleNamespace so PEFT can iterate over it
+        self.config = PretrainedConfig(
             vocab_size=vocab_size,
             hidden_size=d_model,
             num_hidden_layers=num_layers,
             num_attention_heads=num_heads,
             max_position_embeddings=context_length,
-            model_type="gpt",  # PEFT uses this to identify model architecture
+            model_type="gpt",  
             is_encoder_decoder=False,
-            d_model=d_model,  # Keep our naming too
+            d_model=d_model,  
             num_heads=num_heads,
             num_layers=num_layers,
         )
