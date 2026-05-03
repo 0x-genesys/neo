@@ -342,11 +342,18 @@ class DecoderOnlyTransformer(nn.Module):
             if repetition_penalty != 1.0:
                 for i in range(idx.shape[0]):
                     generated_tokens = torch.unique(idx[i])
-                    logits[i, generated_tokens] = torch.where(
-                        logits[i, generated_tokens] < 0,
-                        logits[i, generated_tokens] * repetition_penalty,
-                        logits[i, generated_tokens] / repetition_penalty
-                    )
+
+                    # Do not penalize newline or special ChatML/tiktoken tokens
+                    # 198 is newline, >= 100257 are special token IDs
+                    mask = (generated_tokens != 198) & (generated_tokens < 100257)
+                    penalize_tokens = generated_tokens[mask]
+
+                    if len(penalize_tokens) > 0:
+                        logits[i, penalize_tokens] = torch.where(
+                            logits[i, penalize_tokens] < 0,
+                            logits[i, penalize_tokens] * repetition_penalty,
+                            logits[i, penalize_tokens] / repetition_penalty
+                        )
             
             # Apply top-k filtering
             # Apply top-k filtering: zero out all logits below the k-th highest value
