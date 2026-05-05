@@ -309,7 +309,16 @@ class DecoderOnlyTransformer(nn.Module):
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, top_p=None, repetition_penalty=1.2):
+    def generate(
+        self,
+        idx,
+        max_new_tokens,
+        temperature=1.0,
+        top_k=None,
+        top_p=None,
+        repetition_penalty=1.2,
+        eos_token_id=None,
+    ):
         """
         Generate new tokens autoregressively.
         
@@ -320,10 +329,18 @@ class DecoderOnlyTransformer(nn.Module):
             top_k: Keep only top k tokens for sampling
             top_p: Nucleus sampling threshold
             repetition_penalty: Penalty for previously generated tokens (1.0 = disabled)
+            eos_token_id: EOS token ID (int) or list of EOS token IDs for early stopping
             
         Returns:
             Generated token indices (B, T + max_new_tokens)
         """
+        eos_ids = None
+        if eos_token_id is not None:
+            if isinstance(eos_token_id, int):
+                eos_ids = torch.tensor([eos_token_id], device=idx.device, dtype=idx.dtype)
+            else:
+                eos_ids = torch.tensor(list(eos_token_id), device=idx.device, dtype=idx.dtype)
+
         for _ in range(max_new_tokens):
             # Crop context if needed
             # Truncate the context to the last context_length tokens if it has grown too long
@@ -368,6 +385,12 @@ class DecoderOnlyTransformer(nn.Module):
             # Append to sequence
             # Append the new token to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
+
+            # Early stopping if model predicts any EOS token
+            if eos_ids is not None:
+                hit_eos = (idx_next == eos_ids.view(1, -1)).any(dim=1).any()
+                if hit_eos:
+                    break
         
         return idx
     
