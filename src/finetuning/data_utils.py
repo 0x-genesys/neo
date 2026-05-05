@@ -557,16 +557,16 @@ def pull_and_process_hf_datasets(
     output_dir: str = "data/hf_cot",
     max_tokens: int = 480,
     tokenizer = None,
+    orca_samples_target: int = 2500,
+    dolly_samples_target: Optional[int] = None,
+    identity_samples: int = 50,
 ) -> tuple:
     """
     Pull and process HuggingFace datasets into CoT format.
     
     Sources:
-    - microsoft/orca-math-word-problems-200k (5,000 samples) - Logic & Reasoning
-    - databricks/databricks-dolly-15k (15,000 samples) - General Assistant
-    - sahil2801/CodeAlpaca-20k (5,000 samples) - Coding & Technical
-    
-    Total: 25,000 samples
+    - microsoft/orca-math-word-problems-200k (configurable, default 2,500) - Logic anchor
+    - databricks/databricks-dolly-15k (configurable, default all) - Conversational language
     
     Processing:
     - Filter by length (max 480 tokens for safety buffer)
@@ -579,6 +579,9 @@ def pull_and_process_hf_datasets(
         output_dir: Output directory for processed data
         max_tokens: Maximum token count per sample (default: 480)
         tokenizer: Tokenizer for length filtering (optional)
+        orca_samples_target: Target number of Orca samples (default: 2500)
+        dolly_samples_target: Target number of Dolly samples (None = all valid)
+        identity_samples: Number of identity samples to inject
     
     Returns:
         (train_path, val_path) tuple
@@ -598,15 +601,17 @@ def pull_and_process_hf_datasets(
     print("📥 Pulling and Processing HuggingFace Datasets")
     print("="*80 + "\n")
     
-    # 1. Orca Math (5,000 samples) - Logic & Reasoning
+    orca_samples = []
+    dolly_samples = []
+
+    # 1. Orca Math (configurable) - Logic & Reasoning
     print("1️⃣  Processing microsoft/orca-math-word-problems-200k (Logic & Reasoning)...")
-    print("   Target: 5,000 samples")
+    print(f"   Target: {orca_samples_target:,} samples")
     try:
         orca_dataset = load_dataset("microsoft/orca-math-word-problems-200k", split="train")
-        orca_samples = []
         
         for item in orca_dataset:
-            if len(orca_samples) >= 5000:
+            if len(orca_samples) >= orca_samples_target:
                 break
             
             # Map: question -> User, answer (with reasoning) -> Thought + Assistant
@@ -653,14 +658,18 @@ def pull_and_process_hf_datasets(
     except Exception as e:
         print(f"   ⚠️  Error processing Orca Math: {e}")
     
-    # 2. Databricks Dolly (ALL 15,000 samples) - General Assistant
+    # 2. Databricks Dolly (all by default) - General Assistant
     print("\n2️⃣  Processing databricks/databricks-dolly-15k (General Assistant)...")
-    print("   Target: All 15,000 samples")
+    if dolly_samples_target is None:
+        print("   Target: All valid samples")
+    else:
+        print(f"   Target: {dolly_samples_target:,} samples")
     try:
         dolly_dataset = load_dataset("databricks/databricks-dolly-15k", split="train")
-        dolly_samples = []
         
         for item in dolly_dataset:
+            if dolly_samples_target is not None and len(dolly_samples) >= dolly_samples_target:
+                break
             # Map: instruction + context -> User, response -> Assistant
             instruction = item.get('instruction', '')
             context = item.get('context', '')
@@ -716,60 +725,12 @@ def pull_and_process_hf_datasets(
     except Exception as e:
         print(f"   ⚠️  Error processing Dolly: {e}")
     
-    # 3. CodeAlpaca (5,000 samples) - Coding & Technical
-    print("\n3️⃣  Processing sahil2801/CodeAlpaca-20k (Coding & Technical)...")
-    print("   Target: 5,000 samples")
-    try:
-        code_dataset = load_dataset("sahil2801/CodeAlpaca-20k", split="train")
-        code_samples = []
-        
-        for item in code_dataset:
-            if len(code_samples) >= 5000:
-                break
-            
-            # Map: instruction + input -> User, output -> Assistant
-            instruction = item.get('instruction', '')
-            input_text = item.get('input', '')
-            output = item.get('output', '')
-            
-            if not instruction or not output:
-                continue
-            
-            # Combine instruction and input
-            user_message = instruction
-            if input_text:
-                user_message = f"{instruction}\n\nInput: {input_text}"
-            
-            # Create thought for code generation
-            thought = "I'll write clean, well-documented code to solve this problem."
-            
-            example = {
-                "instruction": user_message,
-                "thought": thought,
-                "response": output,
-            }
-            
-            # Filter by length
-            if tokenizer:
-                text = f"System: You are a helpful assistant.\nUser: {user_message}\nThought: {thought}\nAssistant: {output}"
-                tokens = tokenizer.encode(text)
-                if len(tokens) > max_tokens:
-                    continue
-            
-            code_samples.append(example)
-        
-        all_examples.extend(code_samples)
-        print(f"   ✅ Processed {len(code_samples)} code samples")
-    
-    except Exception as e:
-        print(f"   ⚠️  Error processing CodeAlpaca: {e}")
-    
-    # 4. Inject Identity Samples
-    print("\n4️⃣  Injecting Identity Samples...")
-    all_examples = inject_identity_samples(all_examples, num_samples=50)
+    # 3. Inject Identity Samples
+    print("\n3️⃣  Injecting Identity Samples...")
+    all_examples = inject_identity_samples(all_examples, num_samples=identity_samples)
     
     # Shuffle all examples
-    print(f"\n5️⃣  Shuffling {len(all_examples)} total examples...")
+    print(f"\n4️⃣  Shuffling {len(all_examples)} total examples...")
     random.shuffle(all_examples)
     
     # Split into train/val (90/10)
@@ -793,9 +754,9 @@ def pull_and_process_hf_datasets(
     print("✅ Dataset Processing Complete!")
     print(f"{'='*80}")
     print(f"\nDataset Composition:")
-    print(f"  - Logic & Reasoning (Orca Math): ~5,000 samples")
-    print(f"  - General Assistant (Dolly): ~15,000 samples")
-    print(f"  - Coding & Technical (CodeAlpaca): ~5,000 samples")
+    print(f"  - Logic & Reasoning (Orca Math): {len(orca_samples):,} samples")
+    print(f"  - General Assistant (Dolly): {len(dolly_samples):,} samples")
+    print(f"  - Identity Anchors: {identity_samples:,} samples")
     print(f"  - Total: {len(all_examples)} samples")
     print(f"\nSplit:")
     print(f"  - Train: {len(train_examples)} samples -> {train_path}")

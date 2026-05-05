@@ -62,6 +62,12 @@ data:
   max_length: 512          # Maximum sequence length
   num_workers: 0           # DataLoader workers (0 for compatibility)
   
+  # HuggingFace dataset mix for scripts/prepare_finetuning_data.py hf
+  hf_mix:
+    orca_samples_target: 2500         # Reduced logic anchor
+    dolly_samples_target: null        # null = all valid Dolly samples
+    identity_samples: 50
+  
   # System prompt (embedded in all conversations)
   system_prompt: |
     You are a helpful, creative, and clever AI assistant. When a user asks a question, provide a clear and concise answer. If the question involves logic, think through it step-by-step using a 'thought' block. If the user asks for code, provide clean examples in Markdown. Admit if you are unsure of a fact.

@@ -7,6 +7,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import yaml
 
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -302,8 +303,12 @@ def main():
     
     # HuggingFace datasets command
     hf_parser = subparsers.add_parser('hf', help='Pull and process HuggingFace datasets')
+    hf_parser.add_argument('--config', default='config/finetuning_config.yaml', help='YAML config path for HF mix settings')
     hf_parser.add_argument('--output-dir', default='data/hf_cot', help='Output directory')
     hf_parser.add_argument('--max-tokens', type=int, default=480, help='Max tokens per sample')
+    hf_parser.add_argument('--orca-samples-target', type=int, default=None, help='Target Orca sample count (default from config, fallback: 2500)')
+    hf_parser.add_argument('--dolly-samples-target', type=int, default=None, help='Target Dolly sample count (default from config, fallback: all)')
+    hf_parser.add_argument('--identity-samples', type=int, default=None, help='Number of identity anchor samples (default from config, fallback: 50)')
     
     args = parser.parse_args()
     
@@ -364,6 +369,42 @@ def main():
         print("="*80 + "\n")
     
     elif args.command == 'hf':
+        hf_config = {}
+        config_path = Path(args.config)
+        if config_path.exists():
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = yaml.safe_load(f) or {}
+                hf_config = (config.get('data', {}) or {}).get('hf_mix', {}) or {}
+                print(f"✅ Loaded HF mix config from {config_path}")
+            except Exception as e:
+                print(f"⚠️  Could not load HF mix config from {config_path}: {e}")
+                print("   Falling back to built-in defaults / CLI args")
+        else:
+            print(f"⚠️  Config file not found: {config_path}")
+            print("   Falling back to built-in defaults / CLI args")
+
+        orca_samples_target = (
+            args.orca_samples_target
+            if args.orca_samples_target is not None
+            else hf_config.get('orca_samples_target', 2500)
+        )
+        dolly_samples_target = (
+            args.dolly_samples_target
+            if args.dolly_samples_target is not None
+            else hf_config.get('dolly_samples_target', None)
+        )
+        identity_samples = (
+            args.identity_samples
+            if args.identity_samples is not None
+            else hf_config.get('identity_samples', 50)
+        )
+
+        print("\nHF dataset mix:")
+        print(f"  - Orca target: {orca_samples_target}")
+        print(f"  - Dolly target: {'all valid' if dolly_samples_target is None else dolly_samples_target}")
+        print(f"  - Identity samples: {identity_samples}")
+
         # Load tokenizer for length filtering
         try:
             from src.tokenizer_utils import load_tokenizer
@@ -378,6 +419,9 @@ def main():
             output_dir=args.output_dir,
             max_tokens=args.max_tokens,
             tokenizer=tokenizer,
+            orca_samples_target=orca_samples_target,
+            dolly_samples_target=dolly_samples_target,
+            identity_samples=identity_samples,
         )
         
         if train_path and val_path:
