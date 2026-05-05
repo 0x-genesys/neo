@@ -307,7 +307,7 @@ class ChatGenerator:
         # Assistant block starter for response generation
         if include_thought:
             prompt_parts.append(
-                f"{SPECIAL_TOKENS['im_start']}{SPECIAL_TOKENS['assistant']}\n"
+                f"{SPECIAL_TOKENS['im_start']}{SPECIAL_TOKENS['thought']}\n"
             )
         
         return '\n'.join(prompt_parts)
