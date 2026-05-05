@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+from .generation_utils import apply_repetition_penalty
 
 
 class CausalSelfAttention(nn.Module):
@@ -282,6 +283,12 @@ class DecoderOnlyTransformer(nn.Module):
         # Calculate loss if targets provided
         loss = None
         if targets is not None:
+            if targets.shape != idx.shape:
+                raise ValueError(
+                    f"Expected targets shape {idx.shape}, got {targets.shape}. "
+                    "DataLoader should return unshifted labels; model applies causal shift."
+                )
+
             # Determine ignore_index based on what values are in targets
             if (targets == -100).any():
                 ignore_index = -100  # Finetuning mode
@@ -328,21 +335,7 @@ class DecoderOnlyTransformer(nn.Module):
             logits = logits[:, -1, :] / temperature  # divide by temperature before sampling
 
             # Apply repetition penalty before top-k/top-p filtering
-            if repetition_penalty != 1.0:
-                for i in range(idx.shape[0]):
-                    generated_tokens = torch.unique(idx[i])
-
-                    # Do not penalize newline or special ChatML/tiktoken tokens
-                    # 198 is newline, >= 100257 are special token IDs
-                    mask = (generated_tokens != 198) & (generated_tokens < 100257)
-                    penalize_tokens = generated_tokens[mask]
-
-                    if len(penalize_tokens) > 0:
-                        logits[i, penalize_tokens] = torch.where(
-                            logits[i, penalize_tokens] < 0,
-                            logits[i, penalize_tokens] * repetition_penalty,
-                            logits[i, penalize_tokens] / repetition_penalty
-                        )
+            apply_repetition_penalty(logits, idx, repetition_penalty)
             
             # Apply top-k filtering
             # Apply top-k filtering: zero out all logits below the k-th highest value

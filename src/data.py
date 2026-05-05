@@ -23,6 +23,10 @@ class TiktokenWrapper:
         self.vocab_size = encoding.n_vocab
         self.eos_token = "<|endoftext|>"
         self.pad_token = "<|endoftext|>"
+        self.eos_token_id = getattr(encoding, "eot_token", None)
+        if self.eos_token_id is None:
+            self.eos_token_id = encoding.encode_single_token(self.eos_token)
+        self.pad_token_id = self.eos_token_id
     
     def encode(self, text, **kwargs):
         return self.encoding.encode(text, allowed_special='all')
@@ -224,7 +228,7 @@ class CurriculumDataset(Dataset):
         return tokens
 
 
-def collate_fn(batch, max_length):
+def collate_fn(batch, max_length, pad_token_id=0, ignore_index=-100):
     """
     Custom collate function for batching.
     Handles variable length sequences and creates input-target pairs.
@@ -234,21 +238,30 @@ def collate_fn(batch, max_length):
     
     # Pad sequences
     input_ids = []
+    sequence_lengths = []
     for tokens in batch:
+        seq_len = min(len(tokens), max_len)
         if len(tokens) < max_len:
-            # Pad with tokenizer pad token (usually 0)
-            padded = torch.cat([
-                tokens,
-                torch.zeros(max_len - len(tokens), dtype=torch.long)
-            ])
+            padded = torch.cat(
+                [
+                    tokens,
+                    torch.full((max_len - len(tokens),), pad_token_id, dtype=torch.long),
+                ]
+            )
         else:
             padded = tokens[:max_len]
         input_ids.append(padded)
+        sequence_lengths.append(seq_len)
     
     input_ids = torch.stack(input_ids)
     
     # Do not shift here. The model handles the causal shift.
     targets = input_ids.clone()
+
+    # Mask padded labels so they do not contribute to loss.
+    for i, seq_len in enumerate(sequence_lengths):
+        if seq_len < max_len:
+            targets[i, seq_len:] = ignore_index
     
     return input_ids, targets
 
@@ -256,11 +269,54 @@ def collate_fn(batch, max_length):
 class CollateFnWrapper:
     """Wrapper for collate_fn that can be pickled for multiprocessing."""
     
-    def __init__(self, max_length):
+    def __init__(self, max_length, pad_token_id, ignore_index=-100):
         self.max_length = max_length
+        self.pad_token_id = pad_token_id
+        self.ignore_index = ignore_index
     
     def __call__(self, batch):
-        return collate_fn(batch, self.max_length)
+        return collate_fn(
+            batch,
+            self.max_length,
+            pad_token_id=self.pad_token_id,
+            ignore_index=self.ignore_index,
+        )
+
+
+def _load_tokenizer_from_config(config):
+    """Load tokenizer once and update config vocab size from actual tokenizer."""
+    tokenizer_type = config['tokenizer']['type']
+    print(f"Loading tokenizer: {tokenizer_type}")
+
+    if tokenizer_type == 'tiktoken' or 'cl100k' in tokenizer_type.lower():
+        print("Using tiktoken cl100k_base (GPT-4) tokenizer")
+        encoding = tiktoken.get_encoding("cl100k_base")
+        tokenizer = TiktokenWrapper(encoding)
+        actual_vocab_size = tokenizer.vocab_size
+        print(f"✅ Tiktoken loaded: vocab_size={actual_vocab_size:,}")
+    else:
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(tokenizer_type)
+            print(f"✅ Tokenizer loaded successfully: {tokenizer_type}")
+        except Exception as e:
+            print(f"⚠️  Error loading tokenizer '{tokenizer_type}': {e}")
+            print("   Falling back to GPT-2 tokenizer...")
+            tokenizer = AutoTokenizer.from_pretrained('gpt2')
+
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+            print(f"   Set pad_token = eos_token ({tokenizer.eos_token})")
+
+        actual_vocab_size = len(tokenizer)
+        print(f"✅ Tokenizer vocabulary size: {actual_vocab_size:,}")
+
+    config['model']['vocab_size'] = actual_vocab_size
+    expected_vocab = config['tokenizer'].get('vocab_size', actual_vocab_size)
+    if actual_vocab_size != expected_vocab:
+        print(f"⚠️  Vocab size mismatch: expected {expected_vocab:,}, got {actual_vocab_size:,}")
+        print(f"   Using actual vocab size: {actual_vocab_size:,}")
+
+    return tokenizer
 
 
 def load_data(config):
@@ -272,46 +328,7 @@ def load_data(config):
     """
     dataset_type = config['data'].get('dataset_type', 'huggingface')
     
-    # Load tokenizer
-    tokenizer_type = config['tokenizer']['type']
-    print(f"Loading tokenizer: {tokenizer_type}")
-    
-    # Check if using tiktoken
-    if tokenizer_type == 'tiktoken' or 'cl100k' in tokenizer_type.lower():
-        print("Using tiktoken cl100k_base (GPT-4) tokenizer")
-        tokenizer = tiktoken.get_encoding("cl100k_base")
-        actual_vocab_size = tokenizer.n_vocab
-        print(f"✅ Tiktoken loaded: vocab_size={actual_vocab_size:,}")
-        
-        # Wrap with module-level TiktokenWrapper class
-        tokenizer = TiktokenWrapper(tokenizer)
-    else:
-        # Use HuggingFace tokenizer
-        try:
-            tokenizer = AutoTokenizer.from_pretrained(tokenizer_type)
-            print(f"✅ Tokenizer loaded successfully: {tokenizer_type}")
-        except Exception as e:
-            print(f"⚠️  Error loading tokenizer '{tokenizer_type}': {e}")
-            print(f"   Falling back to GPT-2 tokenizer...")
-            tokenizer = AutoTokenizer.from_pretrained('gpt2')
-            tokenizer_type = 'gpt2'
-        
-        # Set pad token if not exists
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-            print(f"   Set pad_token = eos_token ({tokenizer.eos_token})")
-        
-        actual_vocab_size = len(tokenizer)
-        print(f"✅ Tokenizer vocabulary size: {actual_vocab_size:,}")
-    
-    # Update vocab size in config
-    config['model']['vocab_size'] = actual_vocab_size
-    
-    # Warn if vocab size mismatch
-    expected_vocab = config['tokenizer'].get('vocab_size', actual_vocab_size)
-    if actual_vocab_size != expected_vocab:
-        print(f"⚠️  Vocab size mismatch: expected {expected_vocab:,}, got {actual_vocab_size:,}")
-        print(f"   Using actual vocab size: {actual_vocab_size:,}")
+    tokenizer = _load_tokenizer_from_config(config)
     
     # Load dataset based on type
     if dataset_type == 'binary':
@@ -461,42 +478,13 @@ def collate_fn_binary(batch):
 
 
 def load_huggingface_data(config, tokenizer):
-    """Load datasets from HuggingFace (original implementation)."""
+    """Load datasets from HuggingFace."""
     print(f"Loading dataset: {config['data']['dataset_name']}")
     
     # Setup cache directory
     cache_dir = Path('datasets')
     cache_dir.mkdir(exist_ok=True)
     print(f"Dataset cache directory: {cache_dir.absolute()}")
-    
-    # Load tokenizer with error handling
-    tokenizer_type = config['tokenizer']['type']
-    print(f"Loading tokenizer: {tokenizer_type}")
-    
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(tokenizer_type)
-        print(f"✅ Tokenizer loaded successfully: {tokenizer_type}")
-    except Exception as e:
-        print(f"⚠️  Error loading tokenizer '{tokenizer_type}': {e}")
-        print(f"   Falling back to GPT-2 tokenizer...")
-        tokenizer = AutoTokenizer.from_pretrained('gpt2')
-        tokenizer_type = 'gpt2'
-    
-    # Set pad token if not exists
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-        print(f"   Set pad_token = eos_token ({tokenizer.eos_token})")
-    
-    # Update vocab size in config
-    actual_vocab_size = len(tokenizer)
-    config['model']['vocab_size'] = actual_vocab_size
-    print(f"✅ Tokenizer vocabulary size: {actual_vocab_size:,}")
-    
-    # Warn if vocab size mismatch
-    expected_vocab = config['tokenizer'].get('vocab_size', actual_vocab_size)
-    if actual_vocab_size != expected_vocab:
-        print(f"⚠️  Vocab size mismatch: expected {expected_vocab:,}, got {actual_vocab_size:,}")
-        print(f"   Using actual vocab size: {actual_vocab_size:,}")
     
     # Load dataset from HuggingFace with robust error handling and caching
     dataset = None
@@ -633,7 +621,8 @@ def load_huggingface_data(config, tokenizer):
     print(f"  Max length: {max_length}")
     
     # Create collate function wrapper (can be pickled for multiprocessing)
-    collate_wrapper = CollateFnWrapper(max_length)
+    pad_token_id = getattr(tokenizer, "pad_token_id", 0)
+    collate_wrapper = CollateFnWrapper(max_length, pad_token_id=pad_token_id, ignore_index=-100)
     
     # Create dataloaders
     train_loader = DataLoader(

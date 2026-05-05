@@ -38,6 +38,7 @@ check_pytorch_version()
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.model import create_model
+from src.generation_utils import apply_repetition_penalty
 from src.tokenizer_utils import load_tokenizer
 from src.finetuning.base_trainer import SYSTEM_PROMPT
 from src.finetuning.data_utils import SPECIAL_TOKENS
@@ -459,14 +460,7 @@ class ChatGenerator:
             logits, _ = self.model(input_ids=idx_cond)
             logits = logits[:, -1, :] / temperature
 
-            if repetition_penalty != 1.0:
-                for i in range(idx.shape[0]):
-                    generated_tokens = torch.unique(idx[i])
-                    logits[i, generated_tokens] = torch.where(
-                        logits[i, generated_tokens] < 0,
-                        logits[i, generated_tokens] * repetition_penalty,
-                        logits[i, generated_tokens] / repetition_penalty
-                    )
+            apply_repetition_penalty(logits, idx, repetition_penalty)
             
             if top_k is not None:
                 v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
