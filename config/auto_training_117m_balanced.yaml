@@ -85,9 +85,12 @@ training:
       4:  [50, 25, 25]  # Bridge A: Balanced Contextualization
       5:  [35, 25, 40]  # Bridge B: Priority Shift
       6:  [20, 20, 60]  # Bridge C: Instruction Emergence
-      7:  [10, 10, 80]  # Refinement: Behavior & Formatting
-      8:  [10, 10, 80]  # Refinement: Behavior & Formatting
-    
+      # 7:  [10, 10, 80]  # Refinement: Behavior & Formatting
+      # 8:  [10, 10, 80]  # Refinement: Behavior & Formatting
+      # --- THE REVISED RESCUE PLAN --- this happened because my model catastrophically forgot wikipedia and responses were laughable. 
+      7:  [75,  5, 20]  # Massive WikiText recovery, 5% logic anchor
+      8:  [85,  5, 10]  # Final hardening: Cement facts before LoRA
+     
     sources:
       - "wikitext"
       - "stack"
