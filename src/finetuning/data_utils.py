@@ -96,9 +96,9 @@ class CoTDataset(Dataset):
                     try:
                         examples.append(json.loads(line))
                     except json.JSONDecodeError as e:
-                        raise ValueError(
-                            f"Invalid JSON on line {line_num} in {data_path}: {e}"
-                        ) from e
+                        # Skip bad lines instead of crashing the full pipeline
+                        print(f"⚠️ Skipping invalid JSON on line {line_num} in {data_path}: {e}")
+                        continue
                 return examples
     
     def _format_message(self, role: str, content: str) -> str:
