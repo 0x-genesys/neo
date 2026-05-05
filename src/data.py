@@ -247,16 +247,8 @@ def collate_fn(batch, max_length):
     
     input_ids = torch.stack(input_ids)
     
-    # Create targets (shifted by 1 for next-token prediction)
-    # For language modeling: predict next token
-    # Input:  [BOS, token1, token2, token3]
-    # Target: [token1, token2, token3, EOS]
-    # We shift targets left by 1 position
-    targets = input_ids[:, 1:].contiguous()  # Remove first token
-    input_ids = input_ids[:, :-1].contiguous()  # Remove last token
-    
-    # Now input_ids and targets have same shape (B, T-1)
-    # input_ids[i] predicts targets[i] (which is input_ids[i+1] from original)
+    # Do not shift here. The model handles the causal shift.
+    targets = input_ids.clone()
     
     return input_ids, targets
 
@@ -462,9 +454,8 @@ def collate_fn_binary(batch):
     # Stack batch
     input_ids = torch.stack(batch)
     
-    # Create targets (shifted by 1 for next-token prediction)
-    targets = input_ids[:, 1:].contiguous()
-    input_ids = input_ids[:, :-1].contiguous()
+    # Do not shift here. The model handles the causal shift.
+    targets = input_ids.clone()
     
     return input_ids, targets
 

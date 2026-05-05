@@ -288,20 +288,9 @@ class DecoderOnlyTransformer(nn.Module):
             else:
                 ignore_index = -1  # Base training mode
             
-            # CRITICAL: Check if causal shift is needed
-            # Base training: collate_fn already shifts, so input_ids and targets have different lengths
-            # Finetuning: no shift yet, input_ids and targets have same length
-            
-            if idx.shape[1] == targets.shape[1]:
-                # Same length = not shifted yet (finetuning mode)
-                # Apply causal shift: predict token[i+1] from token[i]
-                shift_logits = logits[:, :-1, :].contiguous()
-                shift_targets = targets[:, 1:].contiguous()
-            else:
-                # Different lengths = already shifted (base training mode)
-                # No additional shift needed
-                shift_logits = logits
-                shift_targets = targets
+            # Unconditionally apply causal shift: predict token[i+1] from token[i]
+            shift_logits = logits[:, :-1, :].contiguous()
+            shift_targets = targets[:, 1:].contiguous()
             
             # Flatten batch and time dimensions for cross-entropy
             loss = F.cross_entropy(
