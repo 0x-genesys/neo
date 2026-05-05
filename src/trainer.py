@@ -591,7 +591,7 @@ class Trainer:
             self.wandb.log(metrics, step=self.global_step)
     
     def train(self):
-        """Main training loop."""
+        """Main training loop with curriculum learning support."""
         print("\n" + "="*80)
         print("Starting Training")
         print("="*80)
@@ -600,6 +600,15 @@ class Trainer:
         print(f"Batch size: {self.config['training']['batch_size']}")
         print(f"Gradient accumulation steps: {self.config['training']['gradient_accumulation_steps']}")
         print(f"Effective batch size: {self.config['training']['batch_size'] * self.config['training']['gradient_accumulation_steps']}")
+        
+        # Check if curriculum learning is enabled
+        curriculum_config = self.config['training'].get('curriculum_learning', {})
+        curriculum_enabled = curriculum_config.get('enabled', False)
+        
+        if curriculum_enabled:
+            print(f"\n🎓 Curriculum Learning: ENABLED")
+            print(f"   Phases: Pattern Discovery → Foundation → Bridge → Refinement")
+        
         print("="*80 + "\n")
         
         # Resume from checkpoint if specified
@@ -610,6 +619,56 @@ class Trainer:
         
         for epoch in range(self.epoch, self.config['training']['max_epochs']):
             self.epoch = epoch
+            
+            # Update curriculum distribution if enabled
+            if curriculum_enabled and hasattr(self.train_loader.dataset, 'update_distribution'):
+                epoch_distributions = curriculum_config.get('epoch_distributions', {})
+                # Epochs are 0-indexed in code but 1-indexed in config
+                epoch_num = epoch + 1
+                
+                if epoch_num in epoch_distributions:
+                    new_distribution = epoch_distributions[epoch_num]
+                    sources = curriculum_config.get('sources', ['wikitext', 'stack', 'ultrachat'])
+                    
+                    print(f"\n{'='*80}")
+                    print(f"🎓 CURRICULUM UPDATE - Epoch {epoch_num}")
+                    print(f"{'='*80}")
+                    
+                    # Determine phase name
+                    if epoch_num == 1:
+                        phase = "Current: Pattern Discovery (detect leakage)"
+                    elif epoch_num in [2, 3]:
+                        phase = "Foundation: Knowledge/Logic Hardening"
+                    elif epoch_num == 4:
+                        phase = "Bridge A: Balanced Contextualization"
+                    elif epoch_num == 5:
+                        phase = "Bridge B: Priority Shift"
+                    elif epoch_num == 6:
+                        phase = "Bridge C: Instruction Emergence"
+                    elif epoch_num in [7, 8]:
+                        phase = "Refinement: Behavior & Formatting (The 'Flip')"
+                    else:
+                        phase = "Custom Distribution"
+                    
+                    print(f"Phase: {phase}")
+                    print(f"\nDataset Distribution:")
+                    for source, pct in zip(sources, new_distribution):
+                        print(f"  {source:12s}: {pct:3d}%")
+                    print(f"{'='*80}\n")
+                    
+                    # Update the dataset distribution
+                    self.train_loader.dataset.update_distribution(new_distribution)
+                    
+                    # Recreate the dataloader to reset iteration
+                    from torch.utils.data import DataLoader
+                    self.train_loader = DataLoader(
+                        self.train_loader.dataset,
+                        batch_size=self.train_loader.batch_size,
+                        shuffle=True,
+                        num_workers=self.train_loader.num_workers,
+                        collate_fn=self.train_loader.collate_fn,
+                        pin_memory=self.train_loader.pin_memory
+                    )
             
             epoch_loss = self.train_epoch()
             

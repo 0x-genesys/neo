@@ -95,6 +95,116 @@ class BinaryDataset(Dataset):
         return tokens
 
 
+class CurriculumDataset(Dataset):
+    """
+    Dataset that mixes multiple sources according to curriculum learning schedule.
+    Dynamically adjusts distribution per epoch.
+    """
+    
+    def __init__(self, data_dir: str, sources: list, distribution: list, max_length: int, vocab_size: int):
+        """
+        Args:
+            data_dir: Directory containing source binary files
+            sources: List of source names (e.g., ['wikitext', 'stack', 'ultrachat'])
+            distribution: List of percentages for each source (must sum to 100)
+            max_length: Maximum sequence length
+            vocab_size: Vocabulary size
+        """
+        self.data_dir = Path(data_dir)
+        self.sources = sources
+        self.distribution = distribution
+        self.max_length = max_length
+        self.vocab_size = vocab_size
+        
+        # Validate distribution
+        if abs(sum(distribution) - 100) > 0.1:
+            raise ValueError(f"Distribution must sum to 100, got {sum(distribution)}")
+        
+        # Load all source datasets
+        self.source_datasets = {}
+        self.source_lengths = {}
+        
+        for source in sources:
+            source_file = self.data_dir / f"{source}_train.bin"
+            if not source_file.exists():
+                raise FileNotFoundError(f"Source file not found: {source_file}")
+            
+            # Load as memory-mapped array
+            tokens = np.memmap(source_file, dtype=np.uint32, mode='r')
+            num_sequences = len(tokens) // max_length
+            
+            self.source_datasets[source] = tokens
+            self.source_lengths[source] = num_sequences
+            
+            print(f"✅ Loaded {source}: {len(tokens):,} tokens, {num_sequences:,} sequences")
+        
+        # Calculate total length based on distribution
+        self._calculate_epoch_length()
+        
+        print(f"\n📊 Curriculum Distribution:")
+        for source, pct in zip(sources, distribution):
+            print(f"   {source}: {pct}%")
+        print(f"   Total sequences this epoch: {self.total_sequences:,}")
+    
+    def _calculate_epoch_length(self):
+        """Calculate total sequences for this epoch based on distribution."""
+        # Use the smallest source as reference to avoid running out of data
+        min_sequences = min(self.source_lengths.values())
+        
+        # Calculate how many sequences we can get from each source
+        self.source_sequence_counts = {}
+        for source, pct in zip(self.sources, self.distribution):
+            # Number of sequences to sample from this source
+            count = int(min_sequences * (pct / 100.0) * len(self.sources))
+            self.source_sequence_counts[source] = min(count, self.source_lengths[source])
+        
+        self.total_sequences = sum(self.source_sequence_counts.values())
+        
+        # Create index mapping: global_idx -> (source, source_idx)
+        self.index_map = []
+        for source in self.sources:
+            count = self.source_sequence_counts[source]
+            for i in range(count):
+                # Use modulo to cycle through source if needed
+                source_idx = i % self.source_lengths[source]
+                self.index_map.append((source, source_idx))
+        
+        # Shuffle the index map for better mixing
+        np.random.shuffle(self.index_map)
+    
+    def update_distribution(self, new_distribution: list):
+        """Update distribution for new epoch."""
+        if abs(sum(new_distribution) - 100) > 0.1:
+            raise ValueError(f"Distribution must sum to 100, got {sum(new_distribution)}")
+        
+        self.distribution = new_distribution
+        self._calculate_epoch_length()
+        
+        print(f"\n📊 Updated Curriculum Distribution:")
+        for source, pct in zip(self.sources, new_distribution):
+            print(f"   {source}: {pct}%")
+        print(f"   Total sequences this epoch: {self.total_sequences:,}")
+    
+    def __len__(self):
+        return self.total_sequences
+    
+    def __getitem__(self, idx):
+        """Get a sequence from the appropriate source."""
+        if idx >= len(self.index_map):
+            raise IndexError(f"Index {idx} out of range for dataset of size {len(self.index_map)}")
+        
+        source, source_idx = self.index_map[idx]
+        
+        # Get tokens from source
+        start_idx = source_idx * self.max_length
+        end_idx = start_idx + self.max_length
+        
+        tokens = self.source_datasets[source][start_idx:end_idx]
+        tokens = torch.from_numpy(tokens.astype(np.int64))
+        
+        return tokens
+
+
 def collate_fn(batch, max_length):
     """
     Custom collate function for batching.
@@ -216,10 +326,14 @@ def load_data(config):
 
 
 def load_binary_data(config, tokenizer):
-    """Load pre-tokenized binary datasets with automatic download support."""
+    """Load pre-tokenized binary datasets with automatic download and curriculum learning support."""
     print("\n" + "="*80)
     print("Loading Binary Dataset")
     print("="*80)
+    
+    # Check if curriculum learning is enabled
+    curriculum_config = config['training'].get('curriculum_learning', {})
+    curriculum_enabled = curriculum_config.get('enabled', False)
     
     # Initialize dataset downloader
     downloader = DatasetDownloader()
@@ -253,7 +367,34 @@ def load_binary_data(config, tokenizer):
     
     # Create datasets
     print("\nCreating PyTorch datasets...")
-    train_dataset = BinaryDataset(train_file, max_length, vocab_size)
+    
+    if curriculum_enabled:
+        # Curriculum learning mode - load multiple sources
+        print("\n🎓 Curriculum Learning ENABLED")
+        
+        sources = curriculum_config.get('sources', ['wikitext', 'stack', 'ultrachat'])
+        epoch_distributions = curriculum_config.get('epoch_distributions', {})
+        
+        # Get distribution for epoch 1 (will be updated by trainer)
+        initial_distribution = epoch_distributions.get(1, [33, 33, 34])
+        
+        # Get data directory (parent of train_file)
+        data_dir = Path(train_file).parent
+        
+        train_dataset = CurriculumDataset(
+            data_dir=str(data_dir),
+            sources=sources,
+            distribution=initial_distribution,
+            max_length=max_length,
+            vocab_size=vocab_size
+        )
+        
+        # Store curriculum config in dataset for trainer access
+        train_dataset.curriculum_config = curriculum_config
+        
+    else:
+        # Standard mode - single binary file
+        train_dataset = BinaryDataset(train_file, max_length, vocab_size)
     
     val_dataset = None
     if val_file and Path(val_file).exists():
