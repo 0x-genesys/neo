@@ -69,16 +69,37 @@ class CoTDataset(Dataset):
         print(f"✅ Loaded {len(self.examples)} examples from {data_path}")
     
     def _load_data(self, data_path: str) -> List[Dict[str, Any]]:
-        """Load data from JSONL file."""
-        examples = []
-        
+        """
+        Load data from JSON or JSONL file.
+
+        Supports:
+        1. Standard JSON array: [{...}, {...}]
+        2. JSONL (one JSON object per line)
+        """
         with open(data_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                if line.strip():
-                    example = json.loads(line)
-                    examples.append(example)
-        
-        return examples
+            try:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+                if isinstance(data, dict):
+                    # Single-object JSON file
+                    return [data]
+                raise ValueError(f"Unsupported JSON root type: {type(data).__name__}")
+            except json.JSONDecodeError:
+                # Fallback for JSONL files (and files with empty lines)
+                f.seek(0)
+                examples = []
+                for line_num, line in enumerate(f, start=1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        examples.append(json.loads(line))
+                    except json.JSONDecodeError as e:
+                        raise ValueError(
+                            f"Invalid JSON on line {line_num} in {data_path}: {e}"
+                        ) from e
+                return examples
     
     def _format_message(self, role: str, content: str) -> str:
         """

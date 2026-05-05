@@ -1,95 +1,94 @@
-# GPT Review Report: Risks, Resiliency Gaps, and Test Gaps
+# GPT Review Report (Refreshed)
 
 ## Scope Reviewed
-- Product/docs context: `docs/root_md/README.md`, `docs/root_md/ARCHITECTURE.md`, `docs/root_md/IMPLEMENTATION_SUMMARY.md`, `docs/CRITICAL_BUG_FOUND.md`
-- Core code paths: `train.py`, `src/model.py`, `src/data.py`, `src/trainer.py`, `src/tpu_trainer.py`, `src/inference.py`, `src/finetuning/chat_inference.py`
-- Tests: `test/test_*.py`
-
-## Status Update (Post-Review Remediation)
-- Fixed: padding labels are now masked with `-100` in HuggingFace collation.
-- Fixed: repetition-penalty logic is now shared and consistent across base and LoRA chat inference.
-- Fixed: tokenizer loading logic in `src/data.py` has been centralized to reduce drift.
-- Fixed: canonical training shift contract added and historical incident doc marked as archival.
-- Fixed: focused deterministic unit tests added and passing.
-- Not addressed in this pass (by request): CI pipeline setup.
+- Documentation context: `docs/root_md/README.md`, `docs/root_md/ARCHITECTURE.md`, `docs/TRAINING_LABEL_SHIFT_CONTRACT.md`, historical incident docs.
+- Core code: `train.py`, `evaluate.py`, `src/model.py`, `src/data.py`, `src/trainer.py`, `src/tpu_trainer.py`, `src/inference.py`, `src/finetuning/*`, `src/remote_model_loader.py`, `src/checkpoint_utils.py`, `src/tokenizer_utils.py`.
+- Tests: all `test/test_*.py`.
 
 ## Executive Summary
-The project is a broad training/inference stack with strong hardware and operational coverage (GPU/TPU/MPS/CPU, checkpointing, remote HF integrations, LoRA path). The largest remaining risks are around data-label masking correctness, drift between inference paths, and low automated verification quality for recent critical generation/training fixes.
+Recent fixes improved the training contract and repetition penalty behavior. However, there are still critical correctness and resiliency issues in core train/eval paths, plus test/operational gaps. The highest-risk issue is a positional-argument mismatch against the model `forward` signature, which can silently bypass loss computation or compute on wrong tensors.
 
-## Risk Register (Prioritized)
+## Findings (Ordered by Severity)
 
-### 1) Padding tokens are still trained as real labels in HF collation (High)
-- Where: `src/data.py` (`collate_fn`)
-- Observation: batch padding is hardcoded to `0`, and targets are `input_ids.clone()` with no label masking for padding positions.
-- Why risky: loss is optimized on padded positions, which can bias token statistics and reduce quality/stability. With tokenizer-dependent ID semantics, `0` may not be a real pad token.
+### 1) Critical: positional `model(input_ids, targets)` calls are incompatible with current `forward` signature
+- `forward` signature: `forward(self, idx=None, input_ids=None, targets=None, ...)` in `src/model.py:241`.
+- Current positional usages:
+  - `src/trainer.py:431`, `src/trainer.py:573`
+  - `src/tpu_trainer.py:496`, `src/tpu_trainer.py:708`
+  - `evaluate.py:26`
+  - `src/inference.py:328`
+- Why this is critical:
+  - second positional arg maps to `input_ids`, not `targets`;
+  - can produce `loss=None` or use wrong tensor as `idx`, breaking training/eval correctness.
 - Recommendation:
-  1. Pad with tokenizer `pad_token_id` (not constant `0`).
-  2. Set target labels for padded positions to `-100` so loss ignores them.
-  3. Add a unit test asserting padded targets are ignored.
+  1. Replace all with keyword calls: `model(input_ids=input_ids, targets=targets)`.
+  2. Add a unit test that fails on accidental positional two-arg usage.
 
-### 2) Repetition-penalty behavior diverges between base and LoRA chat inference (High)
-- Where: `src/model.py` vs `src/finetuning/chat_inference.py` (`_generate_with_lora`)
-- Observation: `src/model.py` excludes newline/special IDs from repetition penalty, but custom LoRA generation loop still penalizes all previously generated tokens.
-- Why risky: ChatML/control token corruption can reappear in chat inference even if base inference is fixed.
+### 2) High: unsafe remote checkpoint loading (`torch.load`) from external artifacts
+- Locations:
+  - `src/remote_model_loader.py:105`
+  - `src/inference.py:67`
+  - `src/finetuning/chat_inference.py:142`, `src/tpu_trainer.py:385`, `evaluate.py:50`
+- Why risky:
+  - `torch.load` on untrusted `.pt` can execute arbitrary pickle payloads.
 - Recommendation:
-  1. Mirror the same exclusion logic in `_generate_with_lora`.
-  2. Add parity tests between base `generate()` and chat `_generate_with_lora()` behavior.
+  1. Restrict loading to trusted repos/checksums/signatures.
+  2. Prefer safer formats (`safetensors`) where possible.
+  3. If pickle must remain, add explicit trust gate + warning in CLI/docs.
 
-### 3) Documentation history contains contradictory “critical fix” narratives (Medium)
-- Where: `docs/CRITICAL_BUG_FOUND.md` vs current causal-shift architecture
-- Observation: historical docs describe opposite guidance at different points in time (shift in loader vs shift in model).
-- Why risky: future contributors may reintroduce label-shift regressions.
+### 3) High: evaluation perplexity token counting is incorrect with current padding/masking contract
+- Location: `evaluate.py:29` (`num_tokens = (targets != 0).sum().item()`).
+- Why risky:
+  - training now masks padded labels with `-100`; padding may not be token `0`.
+  - perplexity denominator can be wrong, skewing reported quality.
 - Recommendation:
-  1. Add one canonical “current invariant” doc: “DataLoader returns aligned tokens; model shifts unconditionally.”
-  2. Mark superseded docs as historical/archived.
+  - count valid labels via `targets != -100` consistently.
 
-### 4) Test suite is largely script-based smoke testing, not deterministic unit coverage (Medium)
-- Where: `test/test_training.py`, `test/test_inference_complete.py`, others
-- Observation: many tests run shell commands / rely on local checkpoints/network and check console text, with limited assertions on tensor-level correctness.
-- Why risky: critical regressions (shifting, masking, sampling math) can pass unnoticed.
+### 4) Medium: TPU fallback CE paths are inconsistent with canonical shift/mask contract
+- Locations:
+  - training fallback CE in `src/tpu_trainer.py:503-518`
+  - validation fallback CE in `src/tpu_trainer.py:715-731`
+- Why risky:
+  - fallback CE uses unshifted logits/targets and no `ignore_index=-100`.
+  - if model stops returning precomputed loss (tuple path), behavior diverges from canonical contract.
 - Recommendation:
-  1. Add pure unit tests for:
-     - causal shift correctness (`forward` loss alignment)
-     - collate padding/label masking
-     - repetition penalty math (+ special token exclusion)
-  2. Keep integration tests separate and optional.
+  - apply same shifted CE logic + `ignore_index=-100` in fallback branches.
 
-### 5) No CI pipeline enforcing tests/lint before merge (Medium)
-- Where: no `.github/workflows/*`
-- Why risky: regressions depend on manual discipline.
-- Recommendation: add minimal CI (format/lint + fast unit tests).
+### 5) Medium: TPU checkpoint size sanity check is hardcoded for 117M and can reject valid smaller models
+- Location: `src/tpu_trainer.py:824-830` (`min_size_mb = 100`).
+- Why risky:
+  - valid tiny/experimental models may be treated as corrupted and never uploaded.
+- Recommendation:
+  - make threshold model-size-aware or remove fixed threshold in favor of structured integrity checks.
 
-### 6) Config/data loader duplication and drift risk (Low-Medium)
-- Where: `load_data()` and `load_huggingface_data()` both (re)load tokenizer logic.
-- Why risky: duplicated tokenization setup can diverge and create subtle train/infer mismatch.
-- Recommendation: centralize tokenizer initialization in one function and reuse.
+### 6) Medium: test suite quality still uneven for core regressions
+- Observations:
+  - many tests are script-like/manual and rely on print output or network/local artifacts.
+  - examples: `test/test_inference_complete.py` uses `subprocess.run(..., shell=True)` at `:20-24`.
+  - several tests are environment-dependent rather than deterministic unit checks.
+- Recommendation:
+  1. Keep new deterministic unit tests as required gates.
+  2. Move network/CLI smoke tests to optional/integration tier.
+  3. Add explicit regression tests for trainer/evaluate call signatures.
 
 ## Resiliency Gaps
+1. **Contract enforcement gap**: no hard guard preventing positional two-arg misuse in training code paths.
+2. **Artifact trust gap**: no trust boundary for remote checkpoint deserialization.
+3. **Metric integrity gap**: eval metrics not fully aligned with training label mask semantics.
+4. **TPU divergence gap**: TPU fallback loss logic differs from canonical CPU/GPU model contract.
+5. **Test stratification gap**: deterministic unit tests and network-heavy smoke tests are mixed.
 
-1. **Invariant enforcement gap**: no explicit runtime assertions for training contract (`targets.shape == input_ids.shape`, then model shifts once).
-2. **Sampling-path consistency gap**: base generation and chat LoRA generation have copied logic, not shared utility.
-3. **Operational guardrails gap**: no CI safety net for high-risk files (`src/data.py`, `src/model.py`, generation loops).
-4. **Documentation hygiene gap**: large volume of fix-summary docs with overlapping claims increases cognitive load and recovery time during incidents.
+## Improvements Confirmed Since Prior Review
+- Canonical shift contract doc added: `docs/TRAINING_LABEL_SHIFT_CONTRACT.md`.
+- HF collation now masks padded labels with `-100`: `src/data.py:261-265`.
+- Repetition-penalty behavior unified through shared utility:
+  - `src/generation_utils.py`
+  - used in `src/model.py:338` and `src/finetuning/chat_inference.py:463`.
 
-## Test Gaps (Concrete)
-
-1. **Missing unit test: no-double-shift regression**
-   - Assert model loss equals reference CE on `logits[:, :-1]` vs `targets[:, 1:]`.
-2. **Missing unit test: padded labels ignored**
-   - Build variable-length batch, verify padded label positions are `-100` and excluded from loss.
-3. **Missing unit test: repetition penalty special-token exclusion**
-   - Verify token `198` and IDs `>=100257` remain unmodified.
-4. **Missing parity test: base vs chat generation**
-   - Same prompt/seed/settings should preserve special-token handling semantics.
-5. **Missing checkpoint compatibility matrix tests**
-   - Validate resume/load across single-GPU, DataParallel, and TPU state formats.
-
-## Recommended Next Actions (Order)
-1. Fix padding/label masking in `collate_fn` and add tests.
-2. Align repetition-penalty exclusion in `src/finetuning/chat_inference.py`.
-3. Add fast deterministic unit tests for shift + penalty logic.
-4. Add CI workflow running those unit tests.
-5. Add one canonical “training label-shift contract” doc and mark old incident docs as archival.
-
-## Notes on Repository Reorganization
-Root markdown files were moved to `docs/root_md/` to avoid filename collisions with existing `docs/*.md` content while meeting the request to relocate outer markdown into the docs area.
+## Recommended Fix Order
+1. **Fix all positional model calls** (`trainer`, `tpu_trainer`, `evaluate`, `inference`) to keyword args.
+2. Align `evaluate.py` token counting with `-100` masking.
+3. Align TPU fallback CE with canonical shifted CE + ignore index.
+4. Add a trust policy for remote checkpoint loading and document it.
+5. Make TPU checkpoint integrity checks model-size-aware.
+6. Expand deterministic test coverage for these exact regressions.
