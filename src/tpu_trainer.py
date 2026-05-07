@@ -716,7 +716,7 @@ class TPUTrainer:
                     targets = targets.to(self.device)
                 
                 # Forward pass
-                outputs = model(inputs, targets)
+                outputs = model(input_ids=inputs, targets=targets)
                 
                 # Handle model output - can be tuple (logits, loss) or dict
                 if isinstance(outputs, tuple):
