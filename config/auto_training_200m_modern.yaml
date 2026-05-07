@@ -18,7 +18,7 @@ model:
 training:
   batch_size: 16
   gradient_accumulation_steps: 8
-  max_epochs: 8
+  max_epochs: 4
   max_steps: 36621
   learning_rate: 2.0e-4
   weight_decay: 0.15
@@ -33,14 +33,10 @@ training:
   curriculum_learning:
     enabled: true
     epoch_distributions:
-      1: [80, 20]
+      1: [90, 10]
       2: [80, 20]
-      3: [80, 20]
-      4: [80, 20]
-      5: [80, 20]
-      6: [80, 20]
-      7: [80, 20]
-      8: [80, 20]
+      3: [70, 30]
+      4: [60, 40]
     sources:
       - "wikitext"
       - "ultrachat"
@@ -74,7 +70,7 @@ scheduler:
 system:
   device: "auto"
   mixed_precision: true
-  compile_model: false
+  compile_model: false  
   seed: 42
 
 checkpoint:
