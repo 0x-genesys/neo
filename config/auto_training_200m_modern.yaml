@@ -27,8 +27,8 @@ training:
   dropout: 0.12
   skip_validation: true
   eval_interval: 999999
-  save_interval: 2500
-  log_interval: 200
+  save_interval: 500
+  log_interval: 20
 
   curriculum_learning:
     enabled: true
