@@ -13,11 +13,11 @@ model:
   use_rope: true
   gqa_num_kv_heads: 4
   use_flash_attention: true
-  use_gradient_checkpointing: false
+  use_gradient_checkpointing: true
 
 training:
-  batch_size: 16
-  gradient_accumulation_steps: 8
+  batch_size: 8
+  gradient_accumulation_steps: 16
   max_epochs: 4
   max_steps: 36621
   learning_rate: 2.0e-4
