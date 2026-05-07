@@ -523,6 +523,13 @@ class TPUTrainer:
             
             # Backward pass
             loss.backward()
+
+            # --- ADD THIS NEW BLOCK HERE ---
+            # Force the TPU to execute and clear intermediate activations 
+            # every 4 accumulation batches. This keeps the graph small!
+            if (batch_idx + 1) % 4 == 0:
+                xm.mark_step() 
+            # -------------------------------
             
             # Accumulate loss
             epoch_loss += loss.detach() * grad_accum_steps
