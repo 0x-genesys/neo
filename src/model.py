@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+from .generation_utils import apply_repetition_penalty
 
 
 class CausalSelfAttention(nn.Module):
@@ -143,6 +144,11 @@ class DecoderOnlyTransformer(nn.Module):
     """
     Production-ready decoder-only transformer for language modeling.
     Similar to GPT architecture.
+    
+    PEFT-Compatible: This model includes required attributes for PEFT/LoRA:
+    - config: Model configuration (required by PEFT for metadata)
+    - generation_config: Generation parameters (required by PEFT generate)
+    - main_input_name: Input parameter name (required by some PEFT wrappers)
     """
     
     def __init__(self, vocab_size, d_model, num_heads, num_layers, 
@@ -151,6 +157,36 @@ class DecoderOnlyTransformer(nn.Module):
         self.context_length = context_length
         self.d_model = d_model
         self.use_gradient_checkpointing = use_gradient_checkpointing
+        
+        # PEFT Compatibility: Create config object
+        # This is required by PEFT for saving/loading adapter metadata
+        from transformers import GenerationConfig, PretrainedConfig
+        
+        # Use PretrainedConfig instead of SimpleNamespace so PEFT can iterate over it
+        self.config = PretrainedConfig(
+            vocab_size=vocab_size,
+            hidden_size=d_model,
+            num_hidden_layers=num_layers,
+            num_attention_heads=num_heads,
+            max_position_embeddings=context_length,
+            model_type="gpt",  
+            is_encoder_decoder=False,
+            d_model=d_model,  
+            num_heads=num_heads,
+            num_layers=num_layers,
+            _name_or_path="0x-genesys/neo_weights_checkpoints"
+        )
+        
+        # PEFT Compatibility: Generation config for peft.generate() support
+        self.generation_config = GenerationConfig(
+            max_length=context_length,
+            bos_token_id=0,
+            eos_token_id=vocab_size - 1,
+            pad_token_id=vocab_size - 1,
+        )
+        
+        # PEFT Compatibility: Required by some PEFT wrappers
+        self.main_input_name = "input_ids"
         
         # Token and position embeddings
         self.token_embedding = nn.Embedding(vocab_size, d_model)
@@ -202,18 +238,27 @@ class DecoderOnlyTransformer(nn.Module):
             n_params -= self.position_embedding.weight.numel()
         return n_params
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx=None, input_ids=None, targets=None, attention_mask=None, **kwargs):
         """
         Forward pass.
         
         Args:
-            idx: Input token indices (B, T)
+            idx: Input token indices (B, T) - our standard parameter name
+            input_ids: Alternative name for idx (for PEFT compatibility)
             targets: Target token indices (B, T) for computing loss
+            attention_mask: Attention mask (ignored, for PEFT compatibility)
+            **kwargs: Additional arguments (ignored, for PEFT compatibility)
             
         Returns:
             logits: (B, T, vocab_size) if targets is None
             (logits, loss): if targets is provided
         """
+        # Handle both idx and input_ids for PEFT compatibility
+        if input_ids is not None:
+            idx = input_ids
+        elif idx is None:
+            raise ValueError("Either idx or input_ids must be provided")
+        
         B, T = idx.size()
         assert T <= self.context_length, f"Sequence length {T} exceeds context length {self.context_length}"
         
@@ -238,18 +283,42 @@ class DecoderOnlyTransformer(nn.Module):
         # Calculate loss if targets provided
         loss = None
         if targets is not None:
-            # Flatten batch and time dimensions for cross-entropy;
-            # ignore_index=-1 allows padding positions to be masked out
+            if targets.shape != idx.shape:
+                raise ValueError(
+                    f"Expected targets shape {idx.shape}, got {targets.shape}. "
+                    "DataLoader should return unshifted labels; model applies causal shift."
+                )
+
+            # Determine ignore_index based on what values are in targets
+            if (targets == -100).any():
+                ignore_index = -100  # Finetuning mode
+            else:
+                ignore_index = -1  # Base training mode
+            
+            # Unconditionally apply causal shift: predict token[i+1] from token[i]
+            shift_logits = logits[:, :-1, :].contiguous()
+            shift_targets = targets[:, 1:].contiguous()
+            
+            # Flatten batch and time dimensions for cross-entropy
             loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)),
-                targets.view(-1),
-                ignore_index=-1
+                shift_logits.view(-1, shift_logits.size(-1)),
+                shift_targets.view(-1),
+                ignore_index=ignore_index
             )
         
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, top_p=None):
+    def generate(
+        self,
+        idx,
+        max_new_tokens,
+        temperature=1.0,
+        top_k=None,
+        top_p=None,
+        repetition_penalty=1.2,
+        eos_token_id=None,
+    ):
         """
         Generate new tokens autoregressively.
         
@@ -259,10 +328,19 @@ class DecoderOnlyTransformer(nn.Module):
             temperature: Sampling temperature (higher = more random)
             top_k: Keep only top k tokens for sampling
             top_p: Nucleus sampling threshold
+            repetition_penalty: Penalty for previously generated tokens (1.0 = disabled)
+            eos_token_id: EOS token ID (int) or list of EOS token IDs for early stopping
             
         Returns:
             Generated token indices (B, T + max_new_tokens)
         """
+        eos_ids = None
+        if eos_token_id is not None:
+            if isinstance(eos_token_id, int):
+                eos_ids = torch.tensor([eos_token_id], device=idx.device, dtype=idx.dtype)
+            else:
+                eos_ids = torch.tensor(list(eos_token_id), device=idx.device, dtype=idx.dtype)
+
         for _ in range(max_new_tokens):
             # Crop context if needed
             # Truncate the context to the last context_length tokens if it has grown too long
@@ -272,6 +350,9 @@ class DecoderOnlyTransformer(nn.Module):
             # Get logits for the last position only — that's the next-token distribution
             logits, _ = self(idx_cond)
             logits = logits[:, -1, :] / temperature  # divide by temperature before sampling
+
+            # Apply repetition penalty before top-k/top-p filtering
+            apply_repetition_penalty(logits, idx, repetition_penalty)
             
             # Apply top-k filtering
             # Apply top-k filtering: zero out all logits below the k-th highest value
@@ -304,8 +385,28 @@ class DecoderOnlyTransformer(nn.Module):
             # Append to sequence
             # Append the new token to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
+
+            # Early stopping if model predicts any EOS token
+            if eos_ids is not None:
+                hit_eos = (idx_next == eos_ids.view(1, -1)).any(dim=1).any()
+                if hit_eos:
+                    break
         
         return idx
+    
+    def prepare_inputs_for_generation(self, input_ids, **kwargs):
+        """
+        Prepare inputs for generation (required by PEFT).
+        
+        Args:
+            input_ids: Input token IDs
+            **kwargs: Additional arguments
+            
+        Returns:
+            Dictionary with model inputs
+        """
+        return {"input_ids": input_ids}
+
 
 
 def create_model(config):
@@ -326,4 +427,3 @@ def create_model(config):
         print("✅ Gradient checkpointing enabled (saves memory, slightly slower)")
     
     return model
-

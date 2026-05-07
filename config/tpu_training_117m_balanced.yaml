@@ -1,0 +1,183 @@
+# ============================================================================
+# TPU Training Configuration - 117M Model with Balanced Dataset
+# ============================================================================
+#
+# This configuration is optimized for Google Cloud TPU training.
+# TPUs provide excellent performance for large-scale training with large batch sizes.
+#
+# TPU Features:
+#   - 8 TPU cores (TPU v2/v3/v4)
+#   - bfloat16 mixed precision
+#   - XLA compiler optimization
+#   - Large batch sizes (128-512)
+#
+# ============================================================================
+
+model:
+  vocab_size: 100277  # tiktoken cl100k_base (GPT-4)
+  d_model: 768        # Standard GPT-2 Small size
+  num_heads: 12       # Maintains head_dim = 768/12 = 64 (optimal)
+  num_layers: 12      # Good depth for reasoning
+  context_length: 512 # Standard context length
+  dropout: 0.12       # Moderate regularization
+  use_flash_attention: false
+  use_gradient_checkpointing: false  # TPU has large memory
+
+# Training Configuration - Optimized for TPU
+training:
+  batch_size: 128     # Large batch size for TPU efficiency
+  gradient_accumulation_steps: 4  # Effective batch = 512 (4 × 128)
+  max_epochs: 8        # 8 epochs with curriculum learning
+  max_steps: 9155      # Total tokens (2.4B) / tokens-per-step (262,144)
+  learning_rate: 3.0e-4  # Higher LR for larger batch size
+  weight_decay: 0.15   # Strong regularization
+  warmup_steps: 500    # ~5% of total steps
+  max_grad_norm: 1.0
+  dropout: 0.12
+  eval_interval: 200   # Evaluate every 200 steps
+  save_interval: 200   # Save checkpoint every 200 steps
+  log_interval: 10     # Log every 10 steps
+  
+  # Curriculum Learning - Progressive Dataset Distribution per Epoch
+  curriculum_learning:
+    enabled: true
+    epoch_distributions:
+      1:  [28, 13, 59]  # Current: Pattern Discovery
+      2:  [70, 20, 10]  # Foundation: Knowledge/Logic Hardening
+      3:  [70, 20, 10]  # Foundation: Knowledge/Logic Hardening
+      4:  [50, 25, 25]  # Bridge A: Balanced Contextualization
+      5:  [35, 25, 40]  # Bridge B: Priority Shift
+      6:  [20, 20, 60]  # Bridge C: Instruction Emergence
+      7:  [10, 10, 80]  # Refinement: Behavior & Formatting
+      8:  [10, 10, 80]  # Refinement: Behavior & Formatting
+    
+    sources:
+      - "wikitext"   # Facts and encyclopedic knowledge
+      - "stack"      # Code and logical reasoning
+      - "ultrachat"  # Conversational behavior and instructions
+
+# Data Configuration - HuggingFace Auto-Download
+data:
+  dataset_type: "binary"
+  train_file: "data/balanced_300m_curriculum/train.bin"
+  val_file: "data/balanced_300m_curriculum/val.bin"
+  max_length: 512
+  num_workers: 4       # TPU works well with fewer workers
+  pin_memory: false    # Not needed for TPU
+  
+  # HuggingFace Dataset Auto-Download Configuration
+  huggingface_dataset:
+    repo_id: "0x-genesys/mix_wiki_code_chat_data_300M_tokens_curriculum"
+    dataset_name: "balanced_300m_curriculum"
+    auto_download: true
+
+# Tokenizer Configuration
+tokenizer:
+  type: "tiktoken"
+  vocab_size: 100277
+
+# Optimization - AdamW with Cosine Decay
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  type: "cosine"
+  min_lr: 3.0e-5       # 10% of max_lr
+
+# System Configuration - TPU
+system:
+  device: "tpu"        # Use TPU
+  mixed_precision: true  # bfloat16 on TPU
+  compile_model: false   # XLA handles compilation
+  seed: 42
+
+# Checkpointing
+checkpoint:
+  save_dir: "checkpoints/tpu_training_117m_balanced"
+  resume_from: null
+  save_best_only: false
+
+# Logging
+logging:
+  use_wandb: false
+  wandb_project: "transformer-117m-tpu"
+  wandb_entity: null
+  log_dir: "logs/tpu_training_117m_balanced"
+
+# HuggingFace Hub Integration
+huggingface_hub:
+  enabled: true
+  repo_id: "0x-genesys/neo_weights_checkpoints"
+  upload_best_only: false
+
+# Generation
+generation:
+  max_new_tokens: 100
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  num_samples: 3
+
+# ============================================================================
+# USAGE INSTRUCTIONS
+# ============================================================================
+#
+# 1. Install torch_xla:
+#    pip install torch_xla
+#
+# 2. Start TPU training:
+#    python train.py --config config/tpu_training_117m_balanced.yaml --tpu
+#
+# 3. Monitor training:
+#    - Logs: logs/tpu_training_117m_balanced/
+#    - Checkpoints: checkpoints/tpu_training_117m_balanced/
+#    - TensorBoard: tensorboard --logdir logs/tpu_training_117m_balanced
+#
+# 4. TPU-specific notes:
+#    - Use large batch sizes (128-512) for efficiency
+#    - bfloat16 is recommended over float16
+#    - XLA compiler optimizes computation graphs
+#    - Avoid frequent host-device synchronization
+#
+# ============================================================================
+# TPU SETUP ON GOOGLE CLOUD
+# ============================================================================
+#
+# 1. Create TPU VM:
+#    gcloud compute tpus tpu-vm create neo-tpu \
+#      --zone=us-central1-a \
+#      --accelerator-type=v3-8 \
+#      --version=tpu-vm-pt-2.0
+#
+# 2. SSH into TPU VM:
+#    gcloud compute tpus tpu-vm ssh neo-tpu --zone=us-central1-a
+#
+# 3. Install dependencies:
+#    pip install torch torch_xla
+#    pip install -r requirements.txt
+#
+# 4. Start training:
+#    python train.py --config config/tpu_training_117m_balanced.yaml --tpu
+#
+# ============================================================================
+# TROUBLESHOOTING
+# ============================================================================
+#
+# If torch_xla import fails:
+# 1. Check PyTorch version compatibility
+# 2. Install correct torch_xla version:
+#    pip install torch_xla==2.0 (match PyTorch version)
+#
+# If training is slow:
+# 1. Increase batch size (128, 256, 512)
+# 2. Reduce gradient accumulation steps
+# 3. Check TPU utilization in Cloud Console
+#
+# If out of memory:
+# 1. Reduce batch size
+# 2. Enable gradient checkpointing
+# 3. Reduce context length
+#
+# ============================================================================

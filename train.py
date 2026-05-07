@@ -1,6 +1,13 @@
 """
 Main training script.
 """
+import os
+
+# CRITICAL: DO NOT set PJRT environment variables for Kaggle TPU VMs
+# Kaggle TPU VMs are single-host with 8 cores, not multi-host pods
+# Setting TPU_PROCESS_ADDRESSES='local' causes SliceBuilder errors
+# The PJRT runtime will auto-detect the TPU configuration correctly
+
 import torch
 import yaml
 import argparse
@@ -50,6 +57,12 @@ def main():
         help='Checkpoint filename from HuggingFace Hub (e.g., "checkpoint.pt")'
     )
     parser.add_argument(
+        '--resume-epoch',
+        type=int,
+        default=None,
+        help='Force resume from specific epoch (overrides checkpoint epoch for curriculum)'
+    )
+    parser.add_argument(
         '--model-repo',
         type=str,
         default='0x-genesys/neo_weights_checkpoints',
@@ -90,6 +103,17 @@ def main():
         default=None,
         help='Comma-separated GPU IDs to use (e.g., "0,1")'
     )
+    parser.add_argument(
+        '--tpu',
+        action='store_true',
+        help='Use TPU for training (requires torch_xla)'
+    )
+    parser.add_argument(
+        '--tpu-cores',
+        type=int,
+        default=8,
+        help='Number of TPU cores to use (default: 8)'
+    )
     
     args = parser.parse_args()
     
@@ -106,6 +130,12 @@ def main():
         print(f"\n📥 Resuming from remote checkpoint: {args.resume_remote}")
         local_path = get_remote_checkpoint_path(args.resume_remote, args.model_repo)
         config['checkpoint']['resume_from'] = local_path
+    
+    # Force specific epoch if provided (for curriculum correctness)
+    if args.resume_epoch is not None:
+        config['checkpoint']['force_epoch'] = args.resume_epoch
+        print(f"⚠️  Forcing resume at epoch {args.resume_epoch} (overriding checkpoint)")
+    
     if args.dataset:
         # Support both dataset_name (HuggingFace) and train_file (binary)
         if args.dataset.endswith('.bin'):
@@ -122,6 +152,31 @@ def main():
     
     # Set random seed
     set_seed(config['system']['seed'])
+    
+    # Handle TPU setup
+    use_tpu = args.tpu
+    if use_tpu:
+        try:
+            import torch_xla
+            
+            print(f"\n✅ TPU training enabled!")
+            print(f"   torch_xla version: {torch_xla.__version__}")
+            print(f"   TPU cores: {args.tpu_cores}")
+            print(f"   Note: TPU training uses XLA compiler for optimization")
+            print(f"   Note: Training will spawn across all {args.tpu_cores} cores")
+            print()
+            
+            # Override device to TPU
+            config['system']['device'] = 'tpu'
+            config['system']['tpu_cores'] = args.tpu_cores
+            
+        except ImportError:
+            print("⚠️  TPU requested but torch_xla not installed.")
+            print("   Install with:")
+            print("   curl https://raw.githubusercontent.com/pytorch/xla/master/contrib/scripts/env-setup.py -o pytorch-xla-env-setup.py")
+            print("   python pytorch-xla-env-setup.py --version nightly --apt-packages libomp5 libopenblas-dev")
+            print("   Falling back to auto device selection.")
+            use_tpu = False
     
     # Handle multi-GPU setup
     use_multi_gpu = args.multi_gpu
@@ -183,20 +238,22 @@ def main():
     print("\nCreating model...")
     model = create_model(config)
     
-    # Optimize for device
-    from src.device_utils import optimize_for_device, select_device
-    
-    # Select device first
-    if config['system']['device'] == 'auto':
-        device = select_device('auto', verbose=True)
-    else:
-        device = torch.device(config['system']['device'])
-    
-    model = optimize_for_device(
-        model, 
-        device=device,
-        compile_model=config['system']['compile_model']
-    )
+    # For TPU training, skip device optimization (TPU trainer handles it)
+    if not use_tpu:
+        # Optimize for device
+        from src.device_utils import optimize_for_device, select_device
+        
+        # Select device first
+        if config['system']['device'] == 'auto':
+            device = select_device('auto', verbose=True)
+        else:
+            device = torch.device(config['system']['device'])
+        
+        model = optimize_for_device(
+            model, 
+            device=device,
+            compile_model=config['system']['compile_model']
+        )
     
     # Wrap model with DataParallel if using multiple GPUs
     if use_multi_gpu:
@@ -207,8 +264,16 @@ def main():
         print(f"   Batch will be split across {len(gpu_ids)} GPUs")
         print()
     
-    # Create trainer
-    trainer = Trainer(model, train_loader, val_loader, tokenizer, config)
+    # Create trainer (TPU or standard)
+    if use_tpu:
+        from src.tpu_trainer import TPUTrainer
+        print("🚀 Using TPU Trainer with PyTorch XLA")
+        print("   Training will spawn across all TPU cores")
+        print("   Using xmp.spawn for multi-core training")
+        print()
+        trainer = TPUTrainer(model, train_loader, val_loader, tokenizer, config)
+    else:
+        trainer = Trainer(model, train_loader, val_loader, tokenizer, config)
     
     # Train
     try:
@@ -216,14 +281,22 @@ def main():
     except KeyboardInterrupt:
         print("\n\nTraining interrupted by user")
         print("Saving checkpoint...")
-        trainer.save_checkpoint('interrupted_checkpoint.pt')
+        # Use correct method name based on trainer type
+        if hasattr(trainer, 'save_checkpoint'):
+            trainer.save_checkpoint('interrupted_checkpoint.pt')
+        else:
+            trainer._save_checkpoint(trainer.model, 'interrupted_checkpoint.pt')
         print("Checkpoint saved. You can resume training with --resume interrupted_checkpoint.pt")
     except Exception as e:
         print(f"\n\nTraining failed with error: {e}")
         import traceback
         traceback.print_exc()
         print("\nSaving checkpoint...")
-        trainer.save_checkpoint('error_checkpoint.pt')
+        # Use correct method name based on trainer type
+        if hasattr(trainer, 'save_checkpoint'):
+            trainer.save_checkpoint('error_checkpoint.pt')
+        else:
+            print("⚠️  Cannot save checkpoint - method not available")
     
     print("\nTraining complete!")
 

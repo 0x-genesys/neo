@@ -44,7 +44,9 @@ python src/inference.py --model checkpoints/production/best_model.pt --prompt "O
 
 ### 🎯 Training
 - **Multi-GPU support** with DataParallel
-- **Mixed precision (FP16)** training
+- **TPU support** with dedicated TPU trainer (Kaggle TPU v3-8, Google Cloud TPU)
+- **Cross-hardware checkpoints** - Resume GPU training on TPU and vice versa
+- **Mixed precision (FP16/bfloat16)** training
 - **Gradient checkpointing** for memory efficiency
 - **Automatic dataset download** from HuggingFace Hub
 - **Resume from remote checkpoints** on HuggingFace Hub
@@ -52,7 +54,7 @@ python src/inference.py --model checkpoints/production/best_model.pt --prompt "O
 - **Automatic checkpoint upload** to HuggingFace Hub
 
 ### 🔧 Robustness
-- **Multi-environment support**: CUDA, MPS (Apple Silicon), CPU
+- **Multi-environment support**: CUDA, MPS (Apple Silicon), TPU, CPU
 - **PyTorch version compatibility**: 2.0, 2.1, 2.2, 2.3, 2.4+
 - **Automatic memory optimization** for different GPU sizes
 - **Graceful error handling** and recovery
@@ -96,6 +98,18 @@ python train.py --config config/quick_start.yaml
 python train.py --config config/production_training.yaml
 ```
 
+### Auto-Adaptive Training (Recommended)
+```bash
+# Automatically adapts to available hardware (TPU/GPU/MPS/CPU)
+# Seamlessly resume across different hardware
+python train.py --config config/auto_training_117m_balanced.yaml
+
+# Resume on different hardware (e.g., GPU → TPU)
+python train.py --config config/auto_training_117m_balanced.yaml \
+    --resume checkpoints/auto_training_117m_balanced/checkpoint_step_7500.pt \
+    --tpu
+```
+
 ### GPU Training (Multi-GPU)
 ```bash
 # Optimized for 2x T4 GPUs
@@ -104,6 +118,43 @@ python train.py --config config/gpu_training_117m_balanced.yaml --multi-gpu
 # Low memory config (if OOM)
 python train.py --config config/gpu_training_117m_balanced_low_memory.yaml --multi-gpu
 ```
+
+### TPU Training (Kaggle/Google Cloud)
+
+**Kaggle TPU v3-8** (Recommended - Free!):
+```bash
+# 1. Enable TPU in Kaggle notebook settings
+# 2. Install torch_xla
+!bash scripts/setup_kaggle_tpu.sh
+
+# 3. Train on TPU (8 cores, 3x faster than T4 GPU)
+!python train.py --config config/auto_training_117m_balanced.yaml --tpu
+
+# 4. Resume from GPU checkpoint on TPU
+!python train.py --config config/auto_training_117m_balanced.yaml \
+    --resume-remote best_model_step_7500.pt \
+    --tpu
+```
+
+**Google Cloud TPU**:
+```bash
+# Install torch_xla
+pip install torch_xla
+
+# Train on TPU (8 cores)
+python train.py --config config/tpu_training_117m_balanced.yaml --tpu
+
+# Specify number of TPU cores
+python train.py --config config/tpu_training_117m_balanced.yaml --tpu --tpu-cores 8
+```
+
+**Performance**:
+- **3.1x faster** than T4 GPU (2.5 steps/sec vs 0.8 steps/sec)
+- **128GB memory** vs 16GB on T4
+- **Batch size 128** vs 8 on T4
+- **Free on Kaggle** (30 hours/week)
+
+See [KAGGLE_TPU_SUPPORT.md](KAGGLE_TPU_SUPPORT.md) for complete guide.
 
 ### Resume Training
 
@@ -138,6 +189,8 @@ python train.py \
     --lr 3e-4 \                                 # Override learning rate
     --multi-gpu \                               # Use all GPUs
     --gpu-ids 0,1                               # Use specific GPUs
+    --tpu \                                     # Use TPU
+    --tpu-cores 8                               # Number of TPU cores
 ```
 
 ## 🔮 Inference
@@ -211,6 +264,285 @@ python src/inference.py \
 ```bash
 venv/bin/python3 src/inference.py --model-remote best_model_step_2500.pt --interactive --config config/inference.yaml
 ```
+
+## 🎓 Fine-Tuning
+
+### Quick Start Fine-Tuning
+```bash
+# 1. Prepare HuggingFace datasets (Orca Math, Dolly, CodeAlpaca)
+python scripts/prepare_finetuning_data.py hf --output-dir data/hf_cot
+
+# 2. Fine-tune on GPU (CUDA/MPS auto-detect)
+python src/finetuning/gpu_finetune.py \
+    --model checkpoints/best_model.pt \
+    --train-data data/hf_cot/train.jsonl \
+    --val-data data/hf_cot/val.jsonl \
+    --output-dir finetuned_model
+
+# 3. Or use sample data for testing
+python scripts/prepare_finetuning_data.py all
+python src/finetuning/gpu_finetune.py
+```
+
+### Fine-Tuning with Remote Model
+```bash
+# Load base model from HuggingFace Hub
+python src/finetuning/gpu_finetune.py \
+    --model-remote best_model.pt \
+    --model-repo 0x-genesys/neo_weights_checkpoints \
+    --train-data data/hf_cot/train.jsonl \
+    --val-data data/hf_cot/val.jsonl
+```
+
+### Resume Fine-Tuning
+
+**From local checkpoint:**
+```bash
+python src/finetuning/gpu_finetune.py \
+    --resume finetuned_model/checkpoint_epoch_1.pt \
+    --train-data data/hf_cot/train.jsonl
+```
+
+**From HuggingFace Hub:**
+```bash
+python src/finetuning/gpu_finetune.py \
+    --resume-remote finetuned_checkpoint.pt \
+    --model-repo your-username/your-finetuned-repo \
+    --train-data data/hf_cot/train.jsonl
+```
+
+### Fine-Tuning Options
+
+```bash
+python src/finetuning/gpu_finetune.py \
+    --model checkpoints/best_model.pt \          # Local base model
+    --model-remote best_model.pt \               # Or remote base model
+    --model-repo 0x-genesys/neo_weights \        # HuggingFace repo
+    --train-data data/hf_cot/train.jsonl \       # Training data
+    --val-data data/hf_cot/val.jsonl \           # Validation data
+    --output-dir finetuned_model \               # Output directory
+    --batch-size 8 \                             # Batch size
+    --epochs 3 \                                 # Number of epochs
+    --lr 2.0e-5 \                                # Learning rate
+    --resume finetuned_model/checkpoint.pt \     # Resume from local
+    --resume-remote checkpoint.pt \              # Or resume from remote
+    --upload \                                   # Upload to HuggingFace Hub
+    --upload-repo 0x-genesys/neo_weights \       # Upload repository
+    --upload-path finetune/                      # Upload path prefix
+```
+
+### Merge LoRA Adapter with Base Model
+
+After fine-tuning, merge the LoRA adapter with the base model for inference:
+
+```bash
+# Merge with local base model
+python scripts/merge_lora_model.py \
+    --base-model checkpoints/best_model.pt \
+    --adapter finetuned_model_gpu/best_model \
+    --output merged_finetuned_model.pt
+
+# Merge with remote base model
+python scripts/merge_lora_model.py \
+    --base-model-remote best_model.pt \
+    --adapter finetuned_model_gpu/best_model \
+    --output merged_finetuned_model.pt
+
+# Merge and upload to HuggingFace Hub
+python scripts/merge_lora_model.py \
+    --base-model checkpoints/best_model.pt \
+    --adapter finetuned_model_gpu/best_model \
+    --output merged_finetuned_model.pt \
+    --upload \
+    --upload-repo 0x-genesys/neo_weights_checkpoints \
+    --upload-path finetune/
+```
+
+### Use Merged Model for Inference
+
+```bash
+# Local merged model
+python src/inference.py \
+    --model merged_finetuned_model.pt \
+    --prompt "Explain how photosynthesis works"
+
+# Remote merged model
+python src/inference.py \
+    --model-remote merged_finetuned_model.pt \
+    --model-repo 0x-genesys/neo_weights_checkpoints \
+    --prompt "Explain how photosynthesis works"
+```
+
+### Chat Inference with LoRA Adapter
+
+For interactive chat with the fine-tuned model (without merging):
+
+```bash
+# Interactive mode with remote models (default)
+python src/finetuning/chat_inference.py --interactive
+
+# Interactive mode with local models
+python src/finetuning/chat_inference.py \
+    --base-model checkpoints/best_model.pt \
+    --adapter finetuned_model_gpu/best_model \
+    --interactive
+
+# Single prompt with thought process
+python src/finetuning/chat_inference.py \
+    --prompt "What is 17 * 23?" \
+    --show-thought
+
+# Custom configuration
+python src/finetuning/chat_inference.py \
+    --config config/inference.yaml \
+    --interactive \
+    --show-thought
+```
+
+# Interactive mode with remote models (default - no arguments needed!)
+python src/finetuning/chat_inference.py --interactive
+
+# Interactive mode with local models
+python src/finetuning/chat_inference.py \\
+    --base-model checkpoints/best_model.pt \\
+    --adapter finetuned_model_gpu/best_model \\
+    --interactive
+
+# Single prompt with remote models
+python src/finetuning/chat_inference.py \\
+    --prompt "What is 2+2?"
+
+# Single prompt with local models
+python src/finetuning/chat_inference.py \\
+    --base-model checkpoints/best_model.pt \\
+    --adapter finetuned_model_gpu/best_model \\
+    --prompt "Solve: 5x + 3 = 18"
+
+# Show thought process
+python src/finetuning/chat_inference.py \\
+    --prompt "Explain quantum computing" \\
+    --show-thought
+
+# Custom HuggingFace repository
+python src/finetuning/chat_inference.py \\
+    --model-repo username/my-repo \\
+    --base-model-remote my_model.pt \\
+    --adapter-remote finetune/my_adapter \\
+    --interactive
+
+# Custom generation parameters
+python src/finetuning/chat_inference.py \\
+    --temperature 0.9 \\
+    --top-k 100 \\
+    --max-tokens 512 \\
+    --interactive
+
+# Custom config
+python src/finetuning/chat_inference.py \\
+    --config config/inference.yaml \\
+    --interactive
+    """
+)
+
+**Features:**
+- Chain-of-Thought reasoning display
+- Interactive chat mode
+- Automatic remote model loading
+- Configurable generation parameters
+- System prompt from training
+
+### Data Preparation
+
+**HuggingFace Datasets (Recommended):**
+```bash
+# Pull and process Orca Math, Dolly, CodeAlpaca
+python scripts/prepare_finetuning_data.py hf \
+    --output-dir data/hf_cot \
+    --max-tokens 480
+```
+
+**Sample Data (Testing):**
+```bash
+# Create sample math, code, and Q&A data
+python scripts/prepare_finetuning_data.py all \
+    --output-dir data \
+    --math-samples 1000 \
+    --code-samples 500 \
+    --qa-samples 500
+```
+
+**Custom Data:**
+```bash
+# Math reasoning
+python scripts/prepare_finetuning_data.py math --output data/math.jsonl --num-samples 1000
+
+# Code generation
+python scripts/prepare_finetuning_data.py code --output data/code.jsonl --num-samples 500
+
+# General Q&A
+python scripts/prepare_finetuning_data.py qa --output data/qa.jsonl --num-samples 500
+
+# Merge datasets
+python scripts/prepare_finetuning_data.py merge \
+    --inputs data/math.jsonl data/code.jsonl data/qa.jsonl \
+    --output data/merged.jsonl
+
+# Split into train/val
+python scripts/prepare_finetuning_data.py split \
+    --input data/merged.jsonl \
+    --train data/train.jsonl \
+    --val data/val.jsonl \
+    --val-ratio 0.1
+```
+
+### Fine-Tuning Features
+
+- **LoRA (Low-Rank Adaptation)**: Efficient fine-tuning with only 1.3% trainable parameters
+- **Chain-of-Thought**: Explicit reasoning with special tokens (`<|im_start|>`, `<|im_end|>`)
+- **Hardware Adaptive**: Auto-detects CUDA, MPS, or CPU
+- **Mixed Precision**: FP16 for CUDA GPUs
+- **Resume Support**: Resume from local or remote checkpoints
+- **HuggingFace Integration**: Load models and datasets from HuggingFace Hub
+- **Automatic Upload**: Upload best models to HuggingFace Hub during training
+- **Model Merging**: Merge LoRA adapter with base model for inference
+
+### Complete Fine-Tuning Workflow
+
+```bash
+# 1. Prepare datasets from HuggingFace
+python scripts/prepare_finetuning_data.py hf --output-dir data/hf_cot
+
+# 2. Fine-tune with automatic upload (uploads as chat_adapter)
+python src/finetuning/gpu_finetune.py \
+    --model-remote best_model.pt \
+    --train-data data/hf_cot/train.jsonl \
+    --val-data data/hf_cot/val.jsonl \
+    --upload \
+    --upload-repo 0x-genesys/neo_weights_checkpoints \
+    --upload-path finetune/
+
+# 3. Use chat inference with LoRA adapter (no merging needed)
+python src/finetuning/chat_inference.py --interactive
+
+# 4. (Optional) Merge adapter with base model for standalone inference
+python scripts/merge_lora_model.py \
+    --base-model-remote best_model.pt \
+    --adapter finetuned_model_gpu/best_model \
+    --output merged_finetuned_model.pt \
+    --upload \
+    --upload-repo 0x-genesys/neo_weights_checkpoints \
+    --upload-path finetune/ \
+    --upload-name final_model.pt
+
+# 5. Use merged model for inference
+python src/inference.py \
+    --model-remote final_model.pt \
+    --model-repo 0x-genesys/neo_weights_checkpoints \
+    --prompt "Explain quantum computing" \
+    --interactive
+```
+
+For detailed fine-tuning guide, see [FINETUNING_GUIDE.md](docs/FINETUNING_GUIDE.md)
 
 ## 📊 Monitoring
 
@@ -288,8 +620,10 @@ neo/
 |--------|------------|---------|------------|----------|
 | `quick_start.yaml` | 2.36M | WikiText-2 | 2GB | Testing |
 | `production_training.yaml` | 16M | WikiText-2 | 4GB | CPU training |
-| `gpu_training_117m_balanced.yaml` | 117M | 300M tokens | 14GB | Production |
+| `auto_training_117m_balanced.yaml` | 117M | 300M tokens | Auto | **Cross-hardware (Recommended)** |
+| `gpu_training_117m_balanced.yaml` | 117M | 300M tokens | 14GB | Production GPU |
 | `gpu_training_117m_balanced_low_memory.yaml` | 117M | 300M tokens | 8GB | Multi-GPU safe |
+| `tpu_training_117m_balanced.yaml` | 117M | 300M tokens | TPU | Google Cloud TPU |
 
 ## 🔧 Advanced Features
 

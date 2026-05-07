@@ -8,9 +8,13 @@ matplotlib==3.10.8
 seaborn==0.13.2
 
 # PyTorch (for Mac - MPS support)
-# Compatible with PyTorch 2.0+
-torch>=2.0.0
-torchvision>=0.15.0
+# Compatible with PyTorch 2.2+ (2.4+ recommended but not required)
+torch>=2.2.0
+torchvision>=0.17.0
+
+# TPU Support (optional - for Google Cloud TPU)
+# Uncomment to enable TPU training:
+# torch_xla>=2.0.0
 
 # Transformers and NLP
 transformers>=4.30.0
@@ -18,6 +22,13 @@ datasets>=2.14.0
 tokenizers>=0.13.0
 sentencepiece>=0.1.99
 tiktoken>=0.5.0  # For GPT-4 tokenizer support
+
+# Fine-Tuning with LoRA
+peft>=0.5.0  # Parameter-Efficient Fine-Tuning (LoRA, QLoRA, etc.)
+accelerate>=0.20.0  # Distributed training and mixed precision
+bitsandbytes>=0.41.0; platform_system != "Darwin"  # Quantization support (optional, not for macOS)
+scipy>=1.10.0  # Required for some PEFT operations
+safetensors>=0.3.0  # Safe tensor serialization
 
 # Training utilities
 tqdm>=4.65.0

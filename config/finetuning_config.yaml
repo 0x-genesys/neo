@@ -1,0 +1,128 @@
+# Fine-Tuning Configuration for 117M Transformer with LoRA + CoT
+# Hardware-adaptive configuration for GPU (CUDA/MPS), TPU, and CPU
+
+# Model Configuration (117M parameters)
+model:
+  vocab_size: 100277  # tiktoken vocabulary (will be updated if tokenizer extended)
+  d_model: 768
+  num_heads: 12
+  num_layers: 12
+  context_length: 512
+  dropout: 0.1
+  use_gradient_checkpointing: false  # Enable for larger batches
+
+# LoRA Configuration
+lora:
+  r: 16                    # LoRA rank (lower = fewer parameters)
+  alpha: 32                # LoRA alpha (scaling factor)
+  dropout: 0.1             # LoRA dropout
+  target_modules:          # Target modules (auto-detected from model)
+    - c_attn               # Attention QKV projection
+    - c_proj               # Attention output projection
+    - net.0                # MLP expansion layer
+    - net.2                # MLP projection layer
+  freeze_embeddings: true  # Freeze 100k token embedding layer
+
+# Training Configuration
+training:
+  # Batch settings (hardware-adaptive)
+  batch_size: 8            # Per-device batch size (auto-adjusted)
+  gradient_accumulation_steps: 4  # Effective batch = batch_size * grad_accum
+  
+  # Training duration
+  num_epochs: 3
+  max_steps: null          # Optional: limit total steps
+  
+  # Optimizer settings
+  learning_rate: 2.0e-5    # Fixed LR (DO NOT CHANGE - prevents catastrophic forgetting)
+  weight_decay: 0.05
+  optimizer: adamw
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+  
+  # Scheduler settings
+  scheduler: cosine
+  warmup_ratio: 0.1        # 10% warmup
+  
+  # Gradient settings
+  max_grad_norm: 1.0       # Gradient clipping
+  
+  # Logging and checkpointing
+  logging_steps: 10        # Log every N steps
+  eval_steps: 100          # Evaluate every N steps
+  save_steps: 500          # Save checkpoint every N steps
+  
+  # Mixed precision
+  use_amp: true            # Auto-disabled for incompatible devices
+
+# Data Configuration
+data:
+  train_path: data/cot_train.jsonl
+  val_path: data/cot_val.jsonl
+  max_length: 512          # Maximum sequence length
+  num_workers: 0           # DataLoader workers (0 for compatibility)
+  
+  # HuggingFace dataset mix for scripts/prepare_finetuning_data.py hf
+  hf_mix:
+    orca_samples_target: 2500         # Reduced logic anchor
+    dolly_samples_target: null        # null = all valid Dolly samples
+    identity_samples: 50
+  
+  # System prompt (embedded in all conversations)
+  system_prompt: |
+    You are a helpful, creative, and clever AI assistant. When a user asks a question, provide a clear and concise answer. If the question involves logic, think through it step-by-step using a 'thought' block. If the user asks for code, provide clean examples in Markdown. Admit if you are unsure of a fact.
+
+# Checkpoint Configuration
+checkpoint:
+  pretrained_model: checkpoints/best_model.pt  # Pre-trained base model
+  output_dir: finetuned_model                  # Output directory
+  save_best_only: false                        # Save all checkpoints
+  resume_from: null                            # Path to resume from
+
+# Device Configuration
+device:
+  type: auto               # auto, cuda, mps, cpu
+  
+  # Device-specific overrides
+  cuda:
+    batch_size: 8
+    gradient_accumulation_steps: 4
+    use_amp: true
+  
+  mps:
+    batch_size: 4
+    gradient_accumulation_steps: 8
+    use_amp: false         # Disabled for stability
+  
+  cpu:
+    batch_size: 2
+    gradient_accumulation_steps: 16
+    use_amp: false
+
+# Generation Configuration (for validation samples)
+generation:
+  max_new_tokens: 100
+  temperature: 0.7
+  top_k: 50
+  top_p: 0.9
+  num_samples: 3
+
+# Logging Configuration
+logging:
+  use_wandb: false         # Enable Weights & Biases
+  wandb_project: transformer-finetuning
+  wandb_entity: null
+  log_dir: logs/finetuning
+
+# Advanced Settings
+advanced:
+  # Memory optimization
+  pin_memory: true         # Pin memory for CUDA
+  prefetch_factor: 2       # DataLoader prefetch
+  
+  # Training stability
+  gradient_checkpointing: false  # Enable for larger models
+  
+  # Validation
+  eval_on_start: false     # Evaluate before training
+  save_total_limit: 5      # Keep only N checkpoints

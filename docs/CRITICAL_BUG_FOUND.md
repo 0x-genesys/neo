@@ -1,5 +1,8 @@
 # 🚨 CRITICAL BUG FOUND: Wrong Training Task!
 
+> Historical incident document.  
+> Canonical current behavior is defined in `docs/TRAINING_LABEL_SHIFT_CONTRACT.md`.
+
 ## Bug #11: Input-Target Mismatch (CRITICAL!)
 
 ### The Problem

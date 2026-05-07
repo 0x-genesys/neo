@@ -41,6 +41,10 @@ class Trainer:
         
         # Device setup
         self.device = self._setup_device()
+        
+        # Auto-adjust training parameters based on hardware
+        self._auto_adjust_for_hardware()
+        
         self.model.to(self.device)
         
         # Optimizer
@@ -104,15 +108,83 @@ class Trainer:
         print(f"Trainer initialized on device: {self.device}")
         print(f"Mixed precision training: {self.use_amp}")
     
+    def _auto_adjust_for_hardware(self):
+        """Automatically adjust training parameters based on detected hardware."""
+        device_str = str(self.device)
+        original_batch = self.config['training']['batch_size']
+        original_grad_accum = self.config['training']['gradient_accumulation_steps']
+        original_lr = self.config['training']['learning_rate']
+        
+        print(f"\n{'='*80}")
+        print(f"🔧 Hardware-Adaptive Configuration")
+        print(f"{'='*80}")
+        print(f"Detected device: {self.device}")
+        print(f"Original settings:")
+        print(f"  - Batch size: {original_batch}")
+        print(f"  - Gradient accumulation: {original_grad_accum}")
+        print(f"  - Learning rate: {original_lr:.2e}")
+        print(f"  - Effective batch: {original_batch * original_grad_accum}")
+        
+        # Determine hardware type
+        if 'cuda' in device_str:
+            # CUDA: Keep moderate batch size
+            new_batch = original_batch  # Keep as configured
+            new_grad_accum = original_grad_accum
+            new_lr = original_lr
+            self.config['data']['num_workers'] = min(8, self.config['data'].get('num_workers', 4))
+            self.config['data']['pin_memory'] = True
+            hw_type = "CUDA"
+            
+        elif 'mps' in device_str:
+            # MPS: Smaller batch size for stability
+            new_batch = 8
+            new_grad_accum = original_batch * original_grad_accum // new_batch
+            new_lr = original_lr * (new_batch / original_batch) ** 0.5
+            self.config['data']['num_workers'] = 4
+            self.config['data']['pin_memory'] = False
+            self.config['system']['mixed_precision'] = False  # Disable for stability
+            hw_type = "MPS"
+            
+        else:
+            # CPU: Minimal batch size
+            new_batch = 4
+            new_grad_accum = original_batch * original_grad_accum // new_batch
+            new_lr = original_lr * (new_batch / original_batch) ** 0.5
+            self.config['data']['num_workers'] = 4
+            self.config['data']['pin_memory'] = False
+            self.config['system']['mixed_precision'] = False
+            hw_type = "CPU"
+        
+        # Apply adjustments
+        self.config['training']['batch_size'] = new_batch
+        self.config['training']['gradient_accumulation_steps'] = new_grad_accum
+        self.config['training']['learning_rate'] = new_lr
+        
+        print(f"\n{hw_type}-optimized settings:")
+        print(f"  - Batch size: {new_batch}")
+        print(f"  - Gradient accumulation: {new_grad_accum}")
+        print(f"  - Learning rate: {new_lr:.2e}")
+        print(f"  - Effective batch: {new_batch * new_grad_accum}")
+        print(f"  - Mixed precision: {self.config['system']['mixed_precision']}")
+        print(f"  - Data workers: {self.config['data']['num_workers']}")
+        
+        if new_batch != original_batch or new_grad_accum != original_grad_accum:
+            print(f"\n💡 Note: Batch size adjusted for {hw_type} optimization")
+            print(f"   Effective batch size maintained: {new_batch * new_grad_accum}")
+            print(f"   Checkpoints remain compatible across hardware!")
+        
+        print(f"{'='*80}\n")
+    
     def _setup_device(self):
         """Setup training device with proper detection and memory checking."""
         from .device_utils import select_device, check_mixed_precision_support, print_device_recommendations
         
         device_name = self.config['system']['device']
         device = select_device(device_name, verbose=True)
+        device_str = str(device)
         
         # Check GPU memory if using CUDA
-        if device.type == 'cuda':
+        if 'cuda' in device_str:
             import torch.cuda as cuda
             total_memory = cuda.get_device_properties(device).total_memory / 1e9  # GB
             print(f"\n🔍 GPU Memory Check:")
@@ -287,45 +359,16 @@ class Trainer:
     
     def _upload_to_hub(self, filepath, is_best=False):
         """Upload checkpoint to HuggingFace Hub bucket."""
-        # Check if HF Hub upload is enabled
-        hf_hub_config = self.config.get('huggingface_hub', {})
-        if not hf_hub_config.get('enabled', False):
-            return
+        from .checkpoint_utils import upload_checkpoint_to_hub
         
-        try:
-            from huggingface_hub import HfApi
-            
-            api = HfApi()
-            repo_id = hf_hub_config.get('repo_id')
-            
-            if not repo_id:
-                print("⚠️  HuggingFace Hub repo_id not configured, skipping upload")
-                return
-            
-            # Determine remote path
-            if is_best:
-                path_in_repo = f"best_model_step_{self.global_step}.pt"
-            else:
-                path_in_repo = filepath.name
-            
-            print(f"📤 Uploading to HuggingFace Hub: {repo_id}/{path_in_repo}")
-            
-            # Upload file
-            api.upload_file(
-                path_or_fileobj=str(filepath),
-                path_in_repo=path_in_repo,
-                repo_id=repo_id,
-                repo_type="model",
-                commit_message=f"Upload checkpoint at step {self.global_step} (epoch {self.epoch})"
-            )
-            
-            print(f"✅ Uploaded to HuggingFace Hub: https://huggingface.co/{repo_id}/tree/main")
-            
-        except ImportError:
-            print("⚠️  huggingface_hub not installed. Install with: pip install huggingface_hub")
-        except Exception as e:
-            print(f"⚠️  Failed to upload to HuggingFace Hub: {e}")
-            print(f"   Continuing training...")
+        upload_checkpoint_to_hub(
+            checkpoint_path=filepath,
+            config=self.config,
+            global_step=self.global_step,
+            epoch=self.epoch,
+            is_best=is_best,
+            delete_after_upload=False  # Keep local files for GPU training
+        )
     
     def load_checkpoint(self, filepath):
         """Load training checkpoint."""
@@ -569,7 +612,8 @@ class Trainer:
                 max_new_tokens=self.config['generation']['max_new_tokens'],
                 temperature=self.config['generation']['temperature'],
                 top_k=self.config['generation']['top_k'],
-                top_p=self.config['generation']['top_p']
+                top_p=self.config['generation']['top_p'],
+                repetition_penalty=self.config['generation'].get('repetition_penalty', 1.2),
             )
             
             # Decode

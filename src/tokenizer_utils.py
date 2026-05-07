@@ -7,6 +7,85 @@ the PyTorch version warning in transformers library.
 import torch
 
 
+def load_tokenizer():
+    """
+    Load the default tokenizer (tiktoken cl100k_base) with custom special tokens.
+    
+    Returns:
+        Tokenizer wrapper compatible with HuggingFace interface
+    """
+    try:
+        import tiktoken
+    except ImportError:
+        raise ImportError("tiktoken is required. Install with: pip install tiktoken")
+    
+    # Load the base encoding
+    base = tiktoken.get_encoding("cl100k_base")
+    
+    # Define our special tokens exactly as specified
+    special_tokens = {
+        "<|endoftext|>": 100257,
+        "<|fim_prefix|>": 100258,
+        "<|fim_middle|>": 100259,
+        "<|fim_suffix|>": 100260,
+        "<|im_start|>": 100264,
+        "<|im_end|>": 100265,
+        "<|endofprompt|>": 100276,
+    }
+    
+    # Create a new encoding by merging base special tokens with our new ones
+    # Use the same name as base for consistency
+    encoding = tiktoken.Encoding(
+        name=base.name,
+        pat_str=base._pat_str,
+        mergeable_ranks=base._mergeable_ranks,
+        special_tokens={**base._special_tokens, **special_tokens}
+    )
+    
+    # Create a wrapper to match HuggingFace interface
+    class TiktokenWrapper:
+        def __init__(self, encoding):
+            self.encoding = encoding
+            self.vocab_size = encoding.n_vocab
+            self.eos_token = "<|endoftext|>"
+            self.pad_token = "<|endoftext|>"
+            
+            # Get special token IDs properly
+            # These are now guaranteed to exist because we added them above
+            self.eos_token_id = encoding.encode_single_token(self.eos_token)
+            self.pad_token_id = self.eos_token_id
+            self.im_start_id = encoding.encode_single_token("<|im_start|>")
+            self.im_end_id = encoding.encode_single_token("<|im_end|>")
+            
+            print(f"✅ Tokenizer loaded with {len(special_tokens)} custom special tokens.")
+            print(f"✅ Chat tokens registered: <|im_start|> (ID: {self.im_start_id}), <|im_end|> (ID: {self.im_end_id})")
+        
+        def encode(self, text, **kwargs):
+            # Always use allowed_special='all' to encode special tokens properly
+            return self.encoding.encode(text, allowed_special='all')
+        
+        def decode(self, tokens, **kwargs):
+            return self.encoding.decode(tokens)
+        
+        def add_special_tokens(self, special_tokens_dict):
+            """
+            Add special tokens (compatibility method).
+            For tiktoken, special tokens are already in vocabulary.
+            """
+            return 0
+        
+        def save_pretrained(self, save_directory):
+            """
+            Save tokenizer (compatibility method).
+            """
+            pass
+        
+        def __len__(self):
+            return self.vocab_size
+    
+    return TiktokenWrapper(encoding)
+
+
 def encode_to_tensor(tokenizer, text, device='cpu'):
     """
     Encode text to PyTorch tensor.

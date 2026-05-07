@@ -108,15 +108,12 @@ class DatasetDownloader:
             downloaded_files = {}
             
             for filename in dataset_files:
-                local_path = dataset_dir / filename
                 print(f"\n📥 Downloading {filename}...")
                 
-                # Download with progress bar
+                # Download to HF cache first (more reliable)
                 downloaded_path = hf_hub_download(
                     repo_id=repo_id,
                     filename=filename,
-                    local_dir=dataset_dir,
-                    local_dir_use_symlinks=False,  # Copy files instead of symlinks
                     resume_download=True,  # Resume partial downloads
                     repo_type="dataset"  # Specify this is a dataset repository
                 )
@@ -126,19 +123,68 @@ class DatasetDownloader:
                 # Show file size
                 file_size = Path(downloaded_path).stat().st_size
                 print(f"✅ Downloaded {filename}: {self._format_size(file_size)}")
+                
+                # Copy file from HF cache to target directory
+                expected_path = dataset_dir / filename
+                if downloaded_path != str(expected_path):
+                    import shutil
+                    print(f"   📋 Copying to {expected_path}...")
+                    shutil.copy2(downloaded_path, expected_path)
+                    print(f"   ✅ Copied to target directory")
             
-            # Verify required files exist
-            if "train.bin" not in downloaded_files:
-                raise FileNotFoundError("train.bin not found in repository")
+            # Verify required files exist in target directory
+            print(f"\n🔍 Verifying files in target directory...")
+            if is_curriculum:
+                # For curriculum datasets, check for source files
+                required_files = ['wikitext_train.bin', 'stack_train.bin', 'ultrachat_train.bin', 'val.bin']
+                missing_files = []
+                for f in required_files:
+                    file_path = dataset_dir / f
+                    if not file_path.exists():
+                        missing_files.append(f)
+                        print(f"   ❌ Missing: {f}")
+                    else:
+                        print(f"   ✅ Found: {f} ({self._format_size(file_path.stat().st_size)})")
+                        
+                if missing_files:
+                    raise FileNotFoundError(
+                        f"Missing curriculum source files in {dataset_dir}: {missing_files}\n"
+                        f"Files were downloaded but not copied correctly.\n"
+                        f"Please check the target directory: {dataset_dir}"
+                    )
+            else:
+                # For standard datasets, check for train.bin
+                train_path = dataset_dir / "train.bin"
+                val_path = dataset_dir / "val.bin"
+                
+                if not train_path.exists():
+                    raise FileNotFoundError(
+                        f"train.bin not found in {dataset_dir}\n"
+                        f"Repository does not contain train.bin (might be a curriculum dataset)\n"
+                        f"If this is a curriculum dataset, set curriculum_learning.enabled: true in config"
+                    )
+                    
+                print(f"   ✅ Found: train.bin ({self._format_size(train_path.stat().st_size)})")
+                if val_path.exists():
+                    print(f"   ✅ Found: val.bin ({self._format_size(val_path.stat().st_size)})")
             
             # Load and display statistics
             stats = {}
-            if "dataset_stats.json" in downloaded_files:
-                stats = self._load_stats(Path(downloaded_files["dataset_stats.json"]))
+            if "dataset_stats.json" in downloaded_files or (dataset_dir / "dataset_stats.json").exists():
+                stats = self._load_stats(dataset_dir / "dataset_stats.json")
                 self._print_dataset_info(stats)
             
             print(f"\n✅ Dataset download complete!")
             print(f"📁 Files saved to: {dataset_dir}")
+            
+            # List downloaded files
+            print(f"\n📋 Downloaded files:")
+            for filename in dataset_files:
+                file_path = dataset_dir / filename
+                if file_path.exists():
+                    print(f"   ✅ {filename} ({self._format_size(file_path.stat().st_size)})")
+                else:
+                    print(f"   ❌ {filename} (missing)")
             
             return str(train_file), str(val_file), stats
             
@@ -151,7 +197,10 @@ class DatasetDownloader:
             raise
     
     def _dataset_exists(self, dataset_dir: Path, is_curriculum: bool = False) -> bool:
-        """Check if dataset files exist locally."""
+        """Check if dataset files exist locally in the target directory."""
+        if not dataset_dir.exists():
+            return False
+            
         if is_curriculum:
             # For curriculum datasets, check for source files
             stats_file = dataset_dir / "dataset_stats.json"
@@ -167,15 +216,31 @@ class DatasetDownloader:
                 if sources[source].get('tokens', 0) > 0:
                     source_file = dataset_dir / f"{source}_train.bin"
                     if not source_file.exists() or source_file.stat().st_size == 0:
+                        print(f"   ⚠️  Missing curriculum source file: {source_file}")
                         return False
             
             # Check validation file
             val_file = dataset_dir / "val.bin"
-            return val_file.exists() and val_file.stat().st_size > 0
+            if not val_file.exists() or val_file.stat().st_size == 0:
+                print(f"   ⚠️  Missing validation file: {val_file}")
+                return False
+                
+            print(f"   ✅ All curriculum source files present")
+            return True
         else:
             # For standard datasets, check for train.bin
             train_file = dataset_dir / "train.bin"
-            return train_file.exists() and train_file.stat().st_size > 0
+            val_file = dataset_dir / "val.bin"
+            
+            if not train_file.exists() or train_file.stat().st_size == 0:
+                print(f"   ⚠️  Missing train file: {train_file}")
+                return False
+            if not val_file.exists() or val_file.stat().st_size == 0:
+                print(f"   ⚠️  Missing validation file: {val_file}")
+                return False
+                
+            print(f"   ✅ Dataset files present")
+            return True
     
     def _load_stats(self, stats_file: Path) -> Dict:
         """Load dataset statistics from JSON file."""
