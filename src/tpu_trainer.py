@@ -525,7 +525,7 @@ class TPUTrainer:
             loss.backward()
             
             # Accumulate loss
-            epoch_loss += loss.item() * grad_accum_steps
+            epoch_loss += loss.detach() * grad_accum_steps
             step_count += 1
             
             # Gradient accumulation
@@ -564,7 +564,11 @@ class TPUTrainer:
                 print(f"🔄 Step incremented to: {self.global_step} (batch {batch_idx + 1})")
                 
                 # Logging - always print, but only log to TB/W&B at intervals
-                avg_loss = epoch_loss / step_count if step_count > 0 else 0.0
+                if step_count > 0:
+                    avg_loss = xm.mesh_reduce('sample_loss', epoch_loss.item(), lambda x: sum(x) / len(x))
+                    avg_loss = avg_loss / max(1, step_count)
+                else:
+                    avg_loss = 0.0
                 lr = self.optimizer.param_groups[0]['lr']
                 
                 # Print every step (or every N steps if you want less output)
