@@ -459,7 +459,7 @@ class TPUTrainer:
                         self.config.get('training', {}).get('save_interval', 1000))
         eval_interval = self.config['training']['eval_interval']
         
-        epoch_loss = 0.0
+        epoch_loss = torch.tensor(0.0, device=self.device)
         step_count = 0
         
         # Calculate steps per epoch for progress tracking
@@ -592,7 +592,7 @@ class TPUTrainer:
                         'train/epoch': self.epoch
                     })
                     
-                    epoch_loss = 0.0
+                    epoch_loss = torch.tensor(0.0, device=self.device)
                     step_count = 0
                 
                 # Debug: Always check save condition
