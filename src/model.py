@@ -394,13 +394,15 @@ class DecoderOnlyTransformer(nn.Module):
             # Unconditionally apply causal shift: predict token[i+1] from token[i]
             shift_logits = logits[:, :-1, :].contiguous()
             shift_targets = targets[:, 1:].contiguous()
+
+            pad_token_id = 100257
             
             # --- TPU-SAFE PAD NORMALIZATION ---
             # Instead of a Python 'if' statement checking the tensor content, 
             # we use tensor math to map any -1 padding values to -100.
             # This compiles flawlessly on XLA without triggering a graph break.
             shift_targets = torch.where(
-                shift_targets == -1, 
+                shift_targets == -1 | (shift_targets == pad_token_id), 
                 torch.tensor(-100, dtype=shift_targets.dtype, device=shift_targets.device), 
                 shift_targets
             )

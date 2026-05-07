@@ -498,12 +498,6 @@ class TPUTrainer:
             # Handle model output - can be tuple (logits, loss) or dict
             if isinstance(outputs, tuple):
                 logits, loss = outputs
-                # If model computed loss, use it; otherwise compute manually
-                if loss is None:
-                    loss = nn.functional.cross_entropy(
-                        logits.view(-1, logits.size(-1)),
-                        targets.view(-1)
-                    )
             elif isinstance(outputs, dict):
                 logits = outputs['logits']
                 loss = nn.functional.cross_entropy(
@@ -721,12 +715,6 @@ class TPUTrainer:
                 # Handle model output - can be tuple (logits, loss) or dict
                 if isinstance(outputs, tuple):
                     logits, loss = outputs
-                    # If model computed loss, use it; otherwise compute manually
-                    if loss is None:
-                        loss = nn.functional.cross_entropy(
-                            logits.view(-1, logits.size(-1)),
-                            targets.view(-1)
-                        )
                 elif isinstance(outputs, dict):
                     logits = outputs['logits']
                     loss = nn.functional.cross_entropy(
