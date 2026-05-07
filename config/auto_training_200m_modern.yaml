@@ -1,0 +1,102 @@
+# ============================================================================
+# Auto-Adaptive Training Configuration - Modern 200M Conversational Scholar
+# ============================================================================
+
+model:
+  vocab_size: 100277
+  d_model: 1024
+  num_heads: 16
+  num_layers: 14
+  context_length: 512
+  dropout: 0.12
+  use_swiglu: true
+  use_rope: true
+  gqa_num_kv_heads: 4
+  use_flash_attention: true
+  use_gradient_checkpointing: false
+
+training:
+  batch_size: 16
+  gradient_accumulation_steps: 8
+  max_epochs: 8
+  max_steps: 36621
+  learning_rate: 2.0e-4
+  weight_decay: 0.15
+  warmup_steps: 1500
+  max_grad_norm: 1.0
+  dropout: 0.12
+  skip_validation: true
+  eval_interval: 999999
+  save_interval: 2500
+  log_interval: 200
+
+  curriculum_learning:
+    enabled: true
+    epoch_distributions:
+      1: [80, 20]
+      2: [80, 20]
+      3: [80, 20]
+      4: [80, 20]
+      5: [80, 20]
+      6: [80, 20]
+      7: [80, 20]
+      8: [80, 20]
+    sources:
+      - "wikitext"
+      - "ultrachat"
+
+data:
+  dataset_type: "binary"
+  train_file: "data/balanced_300m_curriculum/train.bin"
+  val_file: "data/balanced_300m_curriculum/val.bin"
+  max_length: 512
+  num_workers: 4
+  pin_memory: true
+
+  huggingface_dataset:
+    repo_id: "0x-genesys/mix_wiki_chat_data_300M_tokens_curriculum"
+    dataset_name: "balanced_300m_curriculum"
+    auto_download: true
+
+tokenizer:
+  type: "tiktoken"
+  vocab_size: 100277
+
+optimizer:
+  type: "adamw"
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+
+scheduler:
+  type: "cosine"
+  min_lr: 2.0e-5
+
+system:
+  device: "auto"
+  mixed_precision: true
+  compile_model: false
+  seed: 42
+
+checkpoint:
+  save_dir: "checkpoints/auto_training_200m_modern"
+  resume_from: null
+  save_best_only: false
+
+logging:
+  use_wandb: false
+  wandb_project: "transformer-200m-modern"
+  wandb_entity: null
+  log_dir: "logs/auto_training_200m_modern"
+
+huggingface_hub:
+  enabled: true
+  repo_id: "0x-genesys/neo_weights_checkpoints"
+  upload_best_only: false
+
+generation:
+  max_new_tokens: 100
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95
+  repetition_penalty: 1.2
+  num_samples: 3

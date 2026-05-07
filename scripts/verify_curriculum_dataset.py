@@ -22,6 +22,9 @@ from pathlib import Path
 import numpy as np
 
 
+DEFAULT_SOURCES = ["wikitext", "ultrachat"]
+
+
 def format_size(size_bytes: int) -> str:
     """Format file size in human readable format."""
     for unit in ['B', 'KB', 'MB', 'GB']:
@@ -48,18 +51,31 @@ def verify_curriculum_dataset(dataset_dir: str = "data/balanced_300m_curriculum"
         print(f"\nTo download the dataset:")
         print(f"  python -c \"from src.dataset_downloader import DatasetDownloader; ")
         print(f"  d = DatasetDownloader(); ")
-        print(f"  d.download_dataset('0x-genesys/mix_wiki_code_chat_data_300M_tokens_curriculum', ")
+        print(f"  d.download_dataset('0x-genesys/mix_wiki_chat_data_300M_tokens_curriculum', ")
         print(f"  'balanced_300m_curriculum', is_curriculum=True)\"")
         return False
     
     print(f"✅ Dataset directory exists")
     print()
+
+    stats_file = dataset_path / "dataset_stats.json"
+    stats = {}
+    if stats_file.exists():
+        try:
+            with open(stats_file, 'r') as f:
+                stats = json.load(f)
+        except Exception as e:
+            print(f"⚠️  Could not load statistics before file checks: {e}")
+
+    source_names = [
+        source
+        for source, source_stats in stats.get('sources', {}).items()
+        if source_stats.get('tokens', 0) > 0
+    ] or DEFAULT_SOURCES
     
     # Check for required files
     required_files = {
-        'wikitext_train.bin': 'WikiText training data',
-        'stack_train.bin': 'Stack Overflow training data',
-        'ultrachat_train.bin': 'UltraChat training data',
+        **{f"{source}_train.bin": f"{source} training data" for source in source_names},
         'val.bin': 'Validation data',
         'dataset_stats.json': 'Dataset statistics'
     }
@@ -96,14 +112,14 @@ def verify_curriculum_dataset(dataset_dir: str = "data/balanced_300m_curriculum"
         print("1. Delete the dataset directory:")
         print(f"   rm -rf {dataset_path}")
         print("2. Re-download the dataset:")
-        print(f"   python train.py --config config/auto_training_117m_balanced.yaml")
+        print(f"   python train.py --config config/auto_training_200m_modern.yaml")
         return False
     
     # Try to load binary files
     print("🔍 Verifying binary file integrity:")
     print("-" * 80)
     
-    binary_files = ['wikitext_train.bin', 'stack_train.bin', 'ultrachat_train.bin', 'val.bin']
+    binary_files = [f"{source}_train.bin" for source in source_names] + ['val.bin']
     
     for filename in binary_files:
         file_path = dataset_path / filename
@@ -126,12 +142,8 @@ def verify_curriculum_dataset(dataset_dir: str = "data/balanced_300m_curriculum"
     print()
     
     # Load and display statistics
-    stats_file = dataset_path / "dataset_stats.json"
     if stats_file.exists():
         try:
-            with open(stats_file, 'r') as f:
-                stats = json.load(f)
-            
             print("📊 Dataset Statistics:")
             print("-" * 80)
             
@@ -175,7 +187,7 @@ def verify_curriculum_dataset(dataset_dir: str = "data/balanced_300m_curriculum"
         print("="*80)
         print()
         print("You can now start training with:")
-        print(f"  python train.py --config config/auto_training_117m_balanced.yaml")
+        print(f"  python train.py --config config/auto_training_200m_modern.yaml")
         print()
         return True
     else:

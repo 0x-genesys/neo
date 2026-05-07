@@ -1,19 +1,19 @@
 #!/bin/bash
 
-# Prepare and Train Script for 117M Model with Balanced Dataset
+# Prepare and Train Script for Modern 200M Conversational Scholar Model
 # This script automates the entire process from dataset preparation to training
 
 set -e  # Exit on error
 
 echo "=============================================================================="
-echo "BALANCED DATASET PREPARATION AND TRAINING"
+echo "CONVERSATIONAL SCHOLAR DATASET PREPARATION AND TRAINING"
 echo "=============================================================================="
 echo ""
 echo "This script will:"
 echo "  1. Install required dependencies"
-echo "  2. Prepare 300M token balanced dataset"
+echo "  2. Prepare 300M token Conversational Scholar dataset"
 echo "  3. Verify dataset integrity"
-echo "  4. Start training on 117M model"
+echo "  4. Start training on modern 200M model"
 echo ""
 echo "Estimated time: 3-5 hours (depending on internet speed and hardware)"
 echo ""
@@ -40,14 +40,12 @@ echo "✅ Dependencies installed"
 # Step 2: Prepare dataset
 echo ""
 echo "=============================================================================="
-echo "STEP 2: Preparing balanced dataset (300M tokens)"
+echo "STEP 2: Preparing Conversational Scholar dataset (300M tokens)"
 echo "=============================================================================="
 echo ""
 echo "This will download and process:"
-echo "  - WikiText-103 (102M tokens)"
-echo "  - UltraChat (150M tokens)"
-echo "  - The Stack (48M tokens)"
-echo "  - DailyDialog (10M tokens)"
+echo "  - WikiText/factual data (240M training tokens)"
+echo "  - UltraChat (60M training tokens + 10M validation tokens)"
 echo ""
 echo "Expected time: 2-4 hours"
 echo ""
@@ -87,8 +85,8 @@ echo "STEP 4: Starting training"
 echo "=============================================================================="
 echo ""
 echo "Training configuration:"
-echo "  Model: 117M parameters"
-echo "  Dataset: 300M tokens (balanced)"
+echo "  Model: modern 200M architecture"
+echo "  Dataset: 300M tokens (80% WikiText/factual, 20% UltraChat)"
 echo "  Epochs: 8"
 echo "  Total tokens: 2.4B"
 echo "  Steps: 36,621"
@@ -101,11 +99,11 @@ echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     echo ""
     echo "Training skipped. To start training later, run:"
-    echo "  python train.py --config config/gpu_training_117m_1.5gb.yaml"
+    echo "  python train.py --config config/auto_training_200m_modern.yaml"
     exit 0
 fi
 
-python train.py --config config/gpu_training_117m_1.5gb.yaml
+python train.py --config config/auto_training_200m_modern.yaml
 
 echo ""
 echo "=============================================================================="

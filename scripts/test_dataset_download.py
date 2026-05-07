@@ -35,7 +35,7 @@ def test_dataset_download():
             'train_file': 'data/test_dataset/train.bin',
             'val_file': 'data/test_dataset/val.bin',
             'huggingface_dataset': {
-                'repo_id': "0x-genesys/mix_wiki_code_chat_data_300M_tokens",  # Your uploaded dataset
+                'repo_id': "0x-genesys/mix_wiki_chat_data_300M_tokens",  # Your uploaded dataset
                 'dataset_name': "balanced_300m",  # Local folder name in data/
                 'auto_download': True
             }

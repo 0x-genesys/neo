@@ -1,13 +1,9 @@
 """
-Prepare a 300M token "Balanced Logic & Chat" binary dataset.
+Prepare a 300M token "Conversational Scholar" binary dataset.
 
 This script creates a high-quality, balanced dataset combining:
 1. WikiText-103 (encyclopedic knowledge)
 2. UltraChat (conversational AI)
-3. The Stack (code reasoning)
-
-Note: DailyDialog is deprecated in newer datasets library, so we use
-additional UltraChat for conversational data and validation.
 
 Total: 300M tokens for training, 10M tokens for validation
 Tokenizer: tiktoken cl100k_base (GPT-4)
@@ -20,9 +16,8 @@ from datasets import load_dataset
 from pathlib import Path
 from tqdm import tqdm
 import random
-from typing import List, Dict, Tuple
+from typing import List
 import json
-import os
 
 # Configure tqdm to avoid newline issues
 tqdm.pandas(
@@ -37,7 +32,7 @@ tqdm.pandas(
 
 
 class BalancedDatasetBuilder:
-    """Build a balanced multi-source dataset with proper formatting and shuffling."""
+    """Build the 80/20 Conversational Scholar dataset."""
     
     def __init__(self, output_dir: str = "data/balanced_300m", seed: int = 42):
         self.output_dir = Path(output_dir)
@@ -53,24 +48,19 @@ class BalancedDatasetBuilder:
         random.seed(seed)
         np.random.seed(seed)
         
-        # Target token counts
-        # Note: DailyDialog is deprecated, so we use more UltraChat instead
+        # Target token counts for the 80/20 Conversational Scholar mix.
         self.target_tokens = {
-            'wikitext': 102_000_000,      # ~102M tokens (34%)
-            'ultrachat': 198_000_000,     # 198M tokens (66%) - includes conversational data
-            'stack': 48_000_000,          # 48M tokens (16%)
-            'dailydialog': 0,             # Deprecated - using UltraChat instead
+            'wikitext': 240_000_000,
+            'ultrachat': 60_000_000,
         }
         
-        self.total_target = 300_000_000  # 300M tokens (adjusted: WikiText + UltraChat + Stack - overlap)
-        self.val_target = 10_000_000     # 10M tokens for validation (from UltraChat)
+        self.total_target = 300_000_000
+        self.val_target = 10_000_000
         
         # Statistics
         self.stats = {
             'wikitext': {'docs': 0, 'tokens': 0},
             'ultrachat': {'docs': 0, 'tokens': 0},
-            'stack': {'docs': 0, 'tokens': 0},
-            'dailydialog': {'docs': 0, 'tokens': 0},
         }
     
     def format_conversation(self, user_text: str, assistant_text: str) -> str:
@@ -80,6 +70,49 @@ class BalancedDatasetBuilder:
     def tokenize_text(self, text: str) -> List[int]:
         """Tokenize text using tiktoken."""
         return self.tokenizer.encode(text, allowed_special='all')
+
+    def count_tokens(self, documents: List[List[int]]) -> int:
+        """Count tokens in a list of tokenized documents."""
+        return sum(len(doc) for doc in documents)
+
+    def fit_documents_to_target(
+        self,
+        documents: List[List[int]],
+        target_tokens: int,
+        source_name: str,
+    ) -> List[List[int]]:
+        """Trim or repeat documents so a source lands exactly on its token target."""
+        if not documents:
+            raise RuntimeError(f"No documents available for {source_name}")
+
+        fitted = []
+        total_tokens = 0
+
+        for doc in documents:
+            if total_tokens >= target_tokens:
+                break
+            remaining = target_tokens - total_tokens
+            fitted_doc = doc if len(doc) <= remaining else doc[:remaining]
+            fitted.append(fitted_doc)
+            total_tokens += len(fitted_doc)
+
+        if total_tokens < target_tokens:
+            print(
+                f"WARNING: {source_name} only provided {total_tokens:,} tokens; "
+                f"repeating shuffled documents to reach {target_tokens:,}."
+            )
+            while total_tokens < target_tokens:
+                shuffled_docs = list(documents)
+                random.shuffle(shuffled_docs)
+                for doc in shuffled_docs:
+                    remaining = target_tokens - total_tokens
+                    fitted_doc = doc if len(doc) <= remaining else doc[:remaining]
+                    fitted.append(fitted_doc)
+                    total_tokens += len(fitted_doc)
+                    if total_tokens >= target_tokens:
+                        break
+
+        return fitted
     
     def load_wikitext(self) -> List[List[int]]:
         """Load and tokenize WikiText-103 (full train split)."""
@@ -139,7 +172,7 @@ class BalancedDatasetBuilder:
     
     def load_ultrachat(self, extra_tokens: int = 0) -> List[List[int]]:
         """
-        Load and tokenize UltraChat (stream first 150M tokens + extra if needed).
+        Load and tokenize UltraChat training tokens plus optional validation reserve.
         
         Args:
             extra_tokens: Additional tokens to load if other sources fail
@@ -215,153 +248,6 @@ class BalancedDatasetBuilder:
         print(f"✅ UltraChat: {len(documents):,} documents, {total_tokens:,} tokens")
         return documents
     
-    def load_stack(self) -> List[List[int]]:
-        """Load and tokenize The Stack (Python/Java subset for 48M tokens)."""
-        print("\n" + "="*80)
-        print("Loading bigcode/the-stack-dedup (Python + Java subset)")
-        print("="*80)
-        
-        documents = []
-        total_tokens = 0
-        
-        # Load Python subset
-        print("Loading Python code...")
-        try:
-            python_dataset = load_dataset(
-                'bigcode/the-stack-dedup',
-                data_dir='data/python',
-                split='train',
-                streaming=True
-            )
-            
-            for example in tqdm(python_dataset, desc="Python", total=30000):
-                if total_tokens >= self.target_tokens['stack'] * 0.6:  # 60% Python
-                    break
-                
-                code = example.get('content', '').strip()
-                
-                if len(code) < 100:  # Skip very short files
-                    continue
-                
-                tokens = self.tokenize_text(code)
-                
-                if len(tokens) < 20:
-                    continue
-                
-                documents.append(tokens)
-                total_tokens += len(tokens)
-                self.stats['stack']['docs'] += 1
-                self.stats['stack']['tokens'] += len(tokens)
-        
-        except Exception as e:
-            print(f"⚠️  Error loading Python: {e}")
-        
-        # Load Java subset
-        print("Loading Java code...")
-        try:
-            java_dataset = load_dataset(
-                'bigcode/the-stack-dedup',
-                data_dir='data/java',
-                split='train',
-                streaming=True
-            )
-            
-            for example in tqdm(java_dataset, desc="Java", total=20000):
-                if total_tokens >= self.target_tokens['stack']:
-                    break
-                
-                code = example.get('content', '').strip()
-                
-                if len(code) < 100:
-                    continue
-                
-                tokens = self.tokenize_text(code)
-                
-                if len(tokens) < 20:
-                    continue
-                
-                documents.append(tokens)
-                total_tokens += len(tokens)
-                self.stats['stack']['docs'] += 1
-                self.stats['stack']['tokens'] += len(tokens)
-        
-        except Exception as e:
-            print(f"⚠️  Error loading Java: {e}")
-        
-        print(f"✅ The Stack: {len(documents):,} documents, {total_tokens:,} tokens")
-        return documents
-    
-    def load_dailydialog(self) -> Tuple[List[List[int]], List[List[int]]]:
-        """
-        Load and tokenize DailyDialog (full dataset).
-        Returns: (train_documents, val_documents)
-        
-        Note: DailyDialog is deprecated in newer datasets library.
-        This method will gracefully fail and return empty lists,
-        allowing the build process to use UltraChat for validation instead.
-        """
-        print("\n" + "="*80)
-        print("Loading daily_dialog (full dataset)")
-        print("="*80)
-        
-        print("⚠️  DailyDialog dataset is deprecated in datasets library")
-        print("   Skipping DailyDialog - will use UltraChat for validation instead")
-        print("   This maintains 300M tokens with adjusted composition:")
-        print("     - WikiText-103: 102M (34%)")
-        print("     - UltraChat: 198M (66%) - increased from 150M")
-        print("     - The Stack: 48M (16%) - code reasoning")
-        
-        # Return empty lists - validation will be created from UltraChat
-        return [], []
-        
-        train_documents = []
-        val_documents = []
-        train_tokens = 0
-        val_tokens = 0
-        
-        print(f"Processing {len(dataset):,} dialogues...")
-        
-        for idx, example in enumerate(tqdm(dataset, desc="DailyDialog")):
-            try:
-                # DailyDialog format: {'dialog': [turn1, turn2, ...]}
-                dialog = example['dialog']
-                
-                if len(dialog) < 2:
-                    continue
-                
-                # Process dialogue pairs
-                for i in range(0, len(dialog) - 1, 2):
-                    user_msg = dialog[i]
-                    assistant_msg = dialog[i + 1] if i + 1 < len(dialog) else ""
-                    
-                    if not assistant_msg:
-                        continue
-                    
-                    # Format as User/Assistant dialogue
-                    formatted = self.format_conversation(user_msg, assistant_msg)
-                    tokens = self.tokenize_text(formatted)
-                    
-                    if len(tokens) < 10:
-                        continue
-                    
-                    # Reserve 10% for validation (conversational subset)
-                    if idx % 10 == 0 and val_tokens < self.val_target:
-                        val_documents.append(tokens)
-                        val_tokens += len(tokens)
-                    else:
-                        train_documents.append(tokens)
-                        train_tokens += len(tokens)
-                        self.stats['dailydialog']['docs'] += 1
-                        self.stats['dailydialog']['tokens'] += len(tokens)
-            
-            except Exception as e:
-                continue
-        
-        print(f"✅ DailyDialog Train: {len(train_documents):,} documents, {train_tokens:,} tokens")
-        print(f"✅ DailyDialog Val: {len(val_documents):,} documents, {val_tokens:,} tokens")
-        
-        return train_documents, val_documents
-    
     def shuffle_and_pack(self, documents: List[List[int]], output_file: str):
         """
         Shuffle documents and pack into binary format using memmap.
@@ -406,21 +292,20 @@ class BalancedDatasetBuilder:
         print(f"   Tokens: {total_tokens:,}")
     
     def build_dataset(self):
-        """Build the complete balanced dataset."""
+        """Build the complete 80/20 WikiText/UltraChat dataset."""
         print("\n" + "="*80)
-        print("BUILDING BALANCED LOGIC & CHAT DATASET (300M TOKENS)")
+        print("BUILDING CONVERSATIONAL SCHOLAR DATASET (300M TOKENS)")
         print("="*80)
         
         # Load all sources
         print("\n📚 Loading data sources...")
         
-        wikitext_docs = self.load_wikitext()
-        stack_docs = self.load_stack()
+        wikitext_docs = self.fit_documents_to_target(
+            self.load_wikitext(),
+            self.target_tokens['wikitext'],
+            "WikiText/factual",
+        )
         
-        # Load DailyDialog (will return empty - deprecated)
-        dailydialog_train, dailydialog_val = self.load_dailydialog()
-        
-        # Load UltraChat - we need extra for validation since DailyDialog is unavailable
         print("\n" + "="*80)
         print("Loading UltraChat (with extra for validation)")
         print("="*80)
@@ -449,19 +334,45 @@ class BalancedDatasetBuilder:
         
         print(f"✅ Validation: {len(val_docs):,} documents, {val_tokens:,} tokens")
         print(f"✅ Training UltraChat: {len(train_ultrachat):,} documents")
+
+        train_ultrachat = self.fit_documents_to_target(
+            train_ultrachat,
+            self.target_tokens['ultrachat'],
+            "UltraChat",
+        )
+        val_docs = self.fit_documents_to_target(
+            val_docs,
+            self.val_target,
+            "UltraChat validation",
+        )
+
+        self.stats = {
+            'wikitext': {
+                'docs': len(wikitext_docs),
+                'tokens': self.count_tokens(wikitext_docs),
+            },
+            'ultrachat': {
+                'docs': len(train_ultrachat),
+                'tokens': self.count_tokens(train_ultrachat),
+            },
+        }
         
         # Combine all training documents
-        all_train_docs = (
-            wikitext_docs +
-            train_ultrachat +
-            stack_docs +
-            dailydialog_train  # Will be empty, but keep for compatibility
-        )
+        all_train_docs = wikitext_docs + train_ultrachat
         
         print(f"Total training documents: {len(all_train_docs):,}")
+        print("Final training mix:")
+        print(f"  WikiText/factual: {self.stats['wikitext']['tokens']:,} tokens (80.0%)")
+        print(f"  UltraChat:        {self.stats['ultrachat']['tokens']:,} tokens (20.0%)")
+
+        print("\n" + "="*80)
+        print("Packing curriculum source files")
+        print("="*80)
+        self.shuffle_and_pack(list(wikitext_docs), 'wikitext_train.bin')
+        self.shuffle_and_pack(list(train_ultrachat), 'ultrachat_train.bin')
         
         # Pack training data
-        self.shuffle_and_pack(all_train_docs, 'train.bin')
+        self.shuffle_and_pack(list(all_train_docs), 'train.bin')
         
         # Pack validation data
         print("\n" + "="*80)
@@ -527,12 +438,10 @@ class BalancedDatasetBuilder:
         print("\n🎯 Training Configuration:")
         print(f"  Total tokens: 300M")
         print(f"  Composition:")
-        print(f"    - WikiText-103: ~102M (34%) - Knowledge")
-        print(f"    - UltraChat: ~198M (66%) - Conversation")
-        print(f"    - The Stack: ~48M (16%) - Code")
-        print(f"  Note: Percentages may overlap due to packing")
+        print(f"    - WikiText/factual: 240M (80%) - Knowledge")
+        print(f"    - UltraChat: 60M (20%) - Conversation")
         print(f"  Epochs: 8")
-        print(f"  Total training tokens: 2.4B (300M × 8)")
+        print(f"  Total training tokens: 2.4B (300M x 8)")
         print(f"  Tokens per step: 65,536 (batch_size × context_length × grad_accum)")
         print(f"  Max steps: 36,621 (2.4B / 65,536)")
         
@@ -543,7 +452,7 @@ class BalancedDatasetBuilder:
         print("       val_file: 'data/balanced_300m/val.bin'")
         print("       dataset_type: 'binary'")
         print("  2. Start training:")
-        print("     python train.py --config config/gpu_training_117m_1.5gb.yaml")
+        print("     python train.py --config config/auto_training_200m_modern.yaml")
 
 
 def main():
@@ -551,7 +460,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description='Prepare 300M token Balanced Logic & Chat dataset'
+        description='Prepare 300M token Conversational Scholar dataset'
     )
     parser.add_argument(
         '--output-dir',

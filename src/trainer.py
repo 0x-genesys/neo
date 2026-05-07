@@ -672,7 +672,7 @@ class Trainer:
                 
                 if epoch_num in epoch_distributions:
                     new_distribution = epoch_distributions[epoch_num]
-                    sources = curriculum_config.get('sources', ['wikitext', 'stack', 'ultrachat'])
+                    sources = curriculum_config.get('sources', ['wikitext', 'ultrachat'])
                     
                     print(f"\n{'='*80}")
                     print(f"🎓 CURRICULUM UPDATE - Epoch {epoch_num}")

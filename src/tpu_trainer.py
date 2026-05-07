@@ -266,7 +266,7 @@ class TPUTrainer:
             
             if epoch_num in epoch_distributions:
                 new_distribution = epoch_distributions[epoch_num]
-                sources = curriculum_config.get('sources', ['wikitext', 'stack', 'ultrachat'])
+                sources = curriculum_config.get('sources', ['wikitext', 'ultrachat'])
                 
                 print(f"\n{'='*80}")
                 print(f"🎓 RESUMING WITH CURRICULUM - Epoch {epoch_num}")
@@ -304,7 +304,7 @@ class TPUTrainer:
                 # Only update if this is a new epoch (not resuming mid-epoch)
                 if epoch > start_epoch and epoch_num in epoch_distributions:
                     new_distribution = epoch_distributions[epoch_num]
-                    sources = curriculum_config.get('sources', ['wikitext', 'stack', 'ultrachat'])
+                    sources = curriculum_config.get('sources', ['wikitext', 'ultrachat'])
                     
                     print(f"\n{'='*80}")
                     print(f"🎓 CURRICULUM UPDATE - Epoch {epoch_num}")

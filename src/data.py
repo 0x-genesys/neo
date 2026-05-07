@@ -128,7 +128,7 @@ class CurriculumDataset(Dataset):
         """
         Args:
             data_dir: Directory containing source binary files
-            sources: List of source names (e.g., ['wikitext', 'stack', 'ultrachat'])
+            sources: List of source names (e.g., ['wikitext', 'ultrachat'])
             distribution: List of percentages for each source (must sum to 100)
             max_length: Maximum sequence length
             vocab_size: Vocabulary size
@@ -162,6 +162,11 @@ class CurriculumDataset(Dataset):
             print(f"✅ Loaded {source}: {len(tokens):,} tokens, {num_sequences:,} sequences")
         
         # Calculate total length based on distribution
+        if len(distribution) != len(sources):
+            raise ValueError(
+                f"Curriculum distribution length ({len(distribution)}) must match "
+                f"sources length ({len(sources)})"
+            )
         self._calculate_epoch_length()
         
         print(f"\n📊 Curriculum Distribution:")
@@ -171,14 +176,23 @@ class CurriculumDataset(Dataset):
     
     def _calculate_epoch_length(self):
         """Calculate total sequences for this epoch based on distribution."""
-        # Use the smallest source as reference to avoid running out of data
-        min_sequences = min(self.source_lengths.values())
-        
-        # Calculate how many sequences we can get from each source
+        active_sources = [
+            (source, pct / 100.0)
+            for source, pct in zip(self.sources, self.distribution)
+            if pct > 0
+        ]
+        if not active_sources:
+            raise ValueError("At least one curriculum source must have a non-zero distribution")
+
+        # Pick the largest epoch size that preserves the requested percentages
+        # without exhausting any source.
+        total_sequences = int(
+            min(self.source_lengths[source] / fraction for source, fraction in active_sources)
+        )
+
         self.source_sequence_counts = {}
         for source, pct in zip(self.sources, self.distribution):
-            # Number of sequences to sample from this source
-            count = int(min_sequences * (pct / 100.0) * len(self.sources))
+            count = int(total_sequences * (pct / 100.0))
             self.source_sequence_counts[source] = min(count, self.source_lengths[source])
         
         self.total_sequences = sum(self.source_sequence_counts.values())
@@ -197,6 +211,11 @@ class CurriculumDataset(Dataset):
     
     def update_distribution(self, new_distribution: list):
         """Update distribution for new epoch."""
+        if len(new_distribution) != len(self.sources):
+            raise ValueError(
+                f"Curriculum distribution length ({len(new_distribution)}) must match "
+                f"sources length ({len(self.sources)})"
+            )
         if abs(sum(new_distribution) - 100) > 0.1:
             raise ValueError(f"Distribution must sum to 100, got {sum(new_distribution)}")
         
@@ -384,11 +403,20 @@ def load_binary_data(config, tokenizer):
         # Curriculum learning mode - load multiple sources
         print("\n🎓 Curriculum Learning ENABLED")
         
-        sources = curriculum_config.get('sources', ['wikitext', 'stack', 'ultrachat'])
+        sources = curriculum_config.get('sources', ['wikitext', 'ultrachat'])
         epoch_distributions = curriculum_config.get('epoch_distributions', {})
         
         # Get distribution for epoch 1 (will be updated by trainer)
-        initial_distribution = epoch_distributions.get(1, [33, 33, 34])
+        initial_distribution = epoch_distributions.get(1)
+        if initial_distribution is None:
+            base_pct = 100 // len(sources)
+            initial_distribution = [base_pct] * len(sources)
+            initial_distribution[-1] += 100 - sum(initial_distribution)
+        if len(initial_distribution) != len(sources):
+            raise ValueError(
+                f"Curriculum distribution length ({len(initial_distribution)}) must match "
+                f"sources length ({len(sources)})"
+            )
         
         # Get data directory (parent of train_file)
         data_dir = Path(train_file).parent
