@@ -391,21 +391,26 @@ class DecoderOnlyTransformer(nn.Module):
                     "DataLoader should return unshifted labels; model applies causal shift."
                 )
 
-            # Determine ignore_index based on what values are in targets
-            if (targets == -100).any():
-                ignore_index = -100  # Finetuning mode
-            else:
-                ignore_index = -1  # Base training mode
-            
             # Unconditionally apply causal shift: predict token[i+1] from token[i]
             shift_logits = logits[:, :-1, :].contiguous()
             shift_targets = targets[:, 1:].contiguous()
             
-            # Flatten batch and time dimensions for cross-entropy
+            # --- TPU-SAFE PAD NORMALIZATION ---
+            # Instead of a Python 'if' statement checking the tensor content, 
+            # we use tensor math to map any -1 padding values to -100.
+            # This compiles flawlessly on XLA without triggering a graph break.
+            shift_targets = torch.where(
+                shift_targets == -1, 
+                torch.tensor(-100, dtype=shift_targets.dtype, device=shift_targets.device), 
+                shift_targets
+            )
+            
+            # Flatten batch and time dimensions for cross-entropy, 
+            # using the now-unified -100 ignore_index.
             loss = F.cross_entropy(
                 shift_logits.view(-1, shift_logits.size(-1)),
                 shift_targets.view(-1),
-                ignore_index=ignore_index
+                ignore_index=-100
             )
         
         return logits, loss
