@@ -90,7 +90,7 @@ logging:
 
 huggingface_hub:
   enabled: true
-  repo_id: "0x-genesys/neo_weights_checkpoints"
+  repo_id: "0x-genesys/neo_weights_200m"
   upload_best_only: false
 
 generation:
