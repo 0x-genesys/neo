@@ -428,7 +428,7 @@ class Trainer:
                 autocast_context = nullcontext()
             
             with autocast_context:
-                logits, loss = self.model(input_ids, targets)
+                logits, loss = self.model(input_ids=input_ids, targets=targets)
                 
                 # Handle DataParallel: loss is a vector [num_gpus], need to reduce to scalar
                 if isinstance(loss, torch.Tensor) and loss.dim() > 0:
