@@ -204,7 +204,7 @@ class TPUTrainer:
                 self.use_wandb = False
         
         # Move model to TPU device (no MpModelWrapper needed for single-process)
-        model = self.model.to(self.device)
+        model = self.model.to(self.device).to(torch.bfloat16)
         
         # Create optimizer and scheduler
         self.optimizer = self._create_optimizer(model)
