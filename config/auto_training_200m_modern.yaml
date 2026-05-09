@@ -18,8 +18,8 @@ model:
 training:
   batch_size: 4
   gradient_accumulation_steps: 32
-  max_epochs: 4
-  max_steps: 18310
+  max_epochs: 5
+  max_steps: 22379
   learning_rate: 2.0e-4
   weight_decay: 0.15
   warmup_steps: 1500
@@ -37,6 +37,7 @@ training:
       2: [80, 20]
       3: [70, 30]
       4: [60, 40]
+      5: [90, 10]
     sources:
       - "wikitext"
       - "ultrachat"
