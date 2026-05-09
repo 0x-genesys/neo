@@ -215,6 +215,12 @@ class TPUTrainer:
             if 'optimizer_state_dict' in self.resume_checkpoint:
                 try:
                     self.optimizer.load_state_dict(self.resume_checkpoint['optimizer_state_dict'])
+                    # --- THE FIX: Move optimizer states to the TPU ---
+                    for state in self.optimizer.state.values():
+                        for k, v in state.items():
+                            if isinstance(v, torch.Tensor):
+                                state[k] = v.to(self.device)
+                    # -------------------------------------------------
                     print("   ✅ Optimizer state loaded")
                 except Exception as e:
                     print(f"   ⚠️  Could not load optimizer state: {e}")
