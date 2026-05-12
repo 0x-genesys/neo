@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Test script for uploading checkpoints to HuggingFace Hub.

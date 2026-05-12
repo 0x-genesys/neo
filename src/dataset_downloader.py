@@ -50,7 +50,7 @@ class DatasetDownloader:
         Download a pre-processed dataset from HuggingFace Hub.
         
         Args:
-            repo_id: HuggingFace repository ID (e.g., "0x-genesys/mix_wiki_code_chat_data_300M_tokens")
+            repo_id: HuggingFace repository ID (e.g., "0x-genesys/mix_wiki_chat_data_300M_tokens")
             dataset_name: Local dataset name (e.g., "balanced_300m")
             force_download: Force re-download even if files exist
             is_curriculum: Whether this is a curriculum dataset (separate source files)
@@ -135,8 +135,11 @@ class DatasetDownloader:
             # Verify required files exist in target directory
             print(f"\n🔍 Verifying files in target directory...")
             if is_curriculum:
-                # For curriculum datasets, check for source files
-                required_files = ['wikitext_train.bin', 'stack_train.bin', 'ultrachat_train.bin', 'val.bin']
+                source_names = self._get_curriculum_sources(
+                    dataset_dir,
+                    available_files=dataset_files,
+                )
+                required_files = [f"{source}_train.bin" for source in source_names] + ["val.bin"]
                 missing_files = []
                 for f in required_files:
                     file_path = dataset_dir / f
@@ -207,17 +210,12 @@ class DatasetDownloader:
             if not stats_file.exists():
                 return False
             
-            # Load stats to get source names
-            stats = self._load_stats(stats_file)
-            sources = stats.get('sources', {})
-            
             # Check if all source files exist
-            for source in sources.keys():
-                if sources[source].get('tokens', 0) > 0:
-                    source_file = dataset_dir / f"{source}_train.bin"
-                    if not source_file.exists() or source_file.stat().st_size == 0:
-                        print(f"   ⚠️  Missing curriculum source file: {source_file}")
-                        return False
+            for source in self._get_curriculum_sources(dataset_dir):
+                source_file = dataset_dir / f"{source}_train.bin"
+                if not source_file.exists() or source_file.stat().st_size == 0:
+                    print(f"   ⚠️  Missing curriculum source file: {source_file}")
+                    return False
             
             # Check validation file
             val_file = dataset_dir / "val.bin"
@@ -241,6 +239,27 @@ class DatasetDownloader:
                 
             print(f"   ✅ Dataset files present")
             return True
+
+    def _get_curriculum_sources(self, dataset_dir: Path, available_files=None) -> list:
+        """Return positive-token curriculum source names for a dataset directory."""
+        stats = self._load_stats(dataset_dir / "dataset_stats.json")
+        sources = [
+            source
+            for source, info in stats.get('sources', {}).items()
+            if info.get('tokens', 0) > 0
+        ]
+        if sources:
+            return sources
+
+        if available_files:
+            inferred = []
+            for filename in available_files:
+                if filename.endswith("_train.bin"):
+                    inferred.append(filename.removesuffix("_train.bin"))
+            if inferred:
+                return inferred
+
+        return ["wikitext", "ultrachat"]
     
     def _load_stats(self, stats_file: Path) -> Dict:
         """Load dataset statistics from JSON file."""
@@ -353,6 +372,9 @@ class DatasetDownloader:
         # Check if files exist locally
         train_path = Path(train_file)
         val_path = Path(val_file) if val_file else None
+        training_config = config.get('training', {})
+        curriculum_config = training_config.get('curriculum_learning', {})
+        is_curriculum = curriculum_config.get('enabled', False)
         
         if train_path.exists() and (not val_path or val_path.exists()):
             print(f"✅ Dataset files found locally:")
@@ -361,6 +383,12 @@ class DatasetDownloader:
                 print(f"  Val: {val_path} ({self._format_size(val_path.stat().st_size)})")
             
             # Load stats if available
+            stats_file = train_path.parent / "dataset_stats.json"
+            stats = self._load_stats(stats_file)
+            return str(train_path), str(val_path) if val_path else None, stats
+
+        if is_curriculum and self._dataset_exists(train_path.parent, is_curriculum=True):
+            print(f"✅ Curriculum source files found locally: {train_path.parent}")
             stats_file = train_path.parent / "dataset_stats.json"
             stats = self._load_stats(stats_file)
             return str(train_path), str(val_path) if val_path else None, stats
@@ -374,7 +402,7 @@ class DatasetDownloader:
                 f"To enable automatic download, add to your config:\n"
                 f"data:\n"
                 f"  huggingface_dataset:\n"
-                f"    repo_id: '0x-genesys/mix_wiki_code_chat_data_300M_tokens'\n"
+                f"    repo_id: '0x-genesys/mix_wiki_chat_data_300M_tokens'\n"
                 f"    dataset_name: 'balanced_300m'\n"
                 f"    auto_download: true"
             )

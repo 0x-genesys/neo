@@ -13,7 +13,7 @@ def test_binary_dataset(data_dir: str = "data/balanced_300m"):
     data_dir = Path(data_dir)
     
     print("="*80)
-    print("TESTING BALANCED DATASET")
+    print("TESTING CONVERSATIONAL SCHOLAR DATASET")
     print("="*80)
     
     # Check files exist
@@ -158,7 +158,7 @@ def test_binary_dataset(data_dir: str = "data/balanced_300m"):
     print("       train_file: 'data/balanced_300m/train.bin'")
     print("       val_file: 'data/balanced_300m/val.bin'")
     print("  2. Start training:")
-    print("     python train.py --config config/gpu_training_117m_1.5gb.yaml")
+    print("     python train.py --config config/auto_training_200m_modern.yaml")
     
     return True
 

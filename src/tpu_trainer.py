@@ -204,7 +204,7 @@ class TPUTrainer:
                 self.use_wandb = False
         
         # Move model to TPU device (no MpModelWrapper needed for single-process)
-        model = self.model.to(self.device)
+        model = self.model.to(self.device).to(torch.bfloat16)
         
         # Create optimizer and scheduler
         self.optimizer = self._create_optimizer(model)
@@ -215,6 +215,12 @@ class TPUTrainer:
             if 'optimizer_state_dict' in self.resume_checkpoint:
                 try:
                     self.optimizer.load_state_dict(self.resume_checkpoint['optimizer_state_dict'])
+                    # --- THE FIX: Move optimizer states to the TPU ---
+                    for state in self.optimizer.state.values():
+                        for k, v in state.items():
+                            if isinstance(v, torch.Tensor):
+                                state[k] = v.to(self.device)
+                    # -------------------------------------------------
                     print("   ✅ Optimizer state loaded")
                 except Exception as e:
                     print(f"   ⚠️  Could not load optimizer state: {e}")
@@ -266,7 +272,7 @@ class TPUTrainer:
             
             if epoch_num in epoch_distributions:
                 new_distribution = epoch_distributions[epoch_num]
-                sources = curriculum_config.get('sources', ['wikitext', 'stack', 'ultrachat'])
+                sources = curriculum_config.get('sources', ['wikitext', 'ultrachat'])
                 
                 print(f"\n{'='*80}")
                 print(f"🎓 RESUMING WITH CURRICULUM - Epoch {epoch_num}")
@@ -304,7 +310,7 @@ class TPUTrainer:
                 # Only update if this is a new epoch (not resuming mid-epoch)
                 if epoch > start_epoch and epoch_num in epoch_distributions:
                     new_distribution = epoch_distributions[epoch_num]
-                    sources = curriculum_config.get('sources', ['wikitext', 'stack', 'ultrachat'])
+                    sources = curriculum_config.get('sources', ['wikitext', 'ultrachat'])
                     
                     print(f"\n{'='*80}")
                     print(f"🎓 CURRICULUM UPDATE - Epoch {epoch_num}")
@@ -459,7 +465,7 @@ class TPUTrainer:
                         self.config.get('training', {}).get('save_interval', 1000))
         eval_interval = self.config['training']['eval_interval']
         
-        epoch_loss = 0.0
+        epoch_loss = torch.tensor(0.0, device=self.device)
         step_count = 0
         
         # Calculate steps per epoch for progress tracking
@@ -493,17 +499,11 @@ class TPUTrainer:
                 targets = targets.to(self.device)
             
             # Forward pass
-            outputs = model(inputs, targets)
+            outputs = model(input_ids=inputs, targets=targets)
             
             # Handle model output - can be tuple (logits, loss) or dict
             if isinstance(outputs, tuple):
                 logits, loss = outputs
-                # If model computed loss, use it; otherwise compute manually
-                if loss is None:
-                    loss = nn.functional.cross_entropy(
-                        logits.view(-1, logits.size(-1)),
-                        targets.view(-1)
-                    )
             elif isinstance(outputs, dict):
                 logits = outputs['logits']
                 loss = nn.functional.cross_entropy(
@@ -523,9 +523,16 @@ class TPUTrainer:
             
             # Backward pass
             loss.backward()
+
+            # --- ADD THIS NEW BLOCK HERE ---
+            # Force the TPU to execute and clear intermediate activations 
+            # every 4 accumulation batches. This keeps the graph small!
+            if (batch_idx + 1) % 4 == 0:
+                xm.mark_step() 
+            # -------------------------------
             
             # Accumulate loss
-            epoch_loss += loss.item() * grad_accum_steps
+            epoch_loss += loss.detach() * grad_accum_steps
             step_count += 1
             
             # Gradient accumulation
@@ -564,7 +571,11 @@ class TPUTrainer:
                 print(f"🔄 Step incremented to: {self.global_step} (batch {batch_idx + 1})")
                 
                 # Logging - always print, but only log to TB/W&B at intervals
-                avg_loss = epoch_loss / step_count if step_count > 0 else 0.0
+                if step_count > 0:
+                    avg_loss = xm.mesh_reduce('sample_loss', epoch_loss.item(), lambda x: sum(x) / len(x))
+                    avg_loss = avg_loss / max(1, step_count)
+                else:
+                    avg_loss = 0.0
                 lr = self.optimizer.param_groups[0]['lr']
                 
                 # Print every step (or every N steps if you want less output)
@@ -592,7 +603,7 @@ class TPUTrainer:
                         'train/epoch': self.epoch
                     })
                     
-                    epoch_loss = 0.0
+                    epoch_loss = torch.tensor(0.0, device=self.device)
                     step_count = 0
                 
                 # Debug: Always check save condition
@@ -705,17 +716,11 @@ class TPUTrainer:
                     targets = targets.to(self.device)
                 
                 # Forward pass
-                outputs = model(inputs, targets)
+                outputs = model(input_ids=inputs, targets=targets)
                 
                 # Handle model output - can be tuple (logits, loss) or dict
                 if isinstance(outputs, tuple):
                     logits, loss = outputs
-                    # If model computed loss, use it; otherwise compute manually
-                    if loss is None:
-                        loss = nn.functional.cross_entropy(
-                            logits.view(-1, logits.size(-1)),
-                            targets.view(-1)
-                        )
                 elif isinstance(outputs, dict):
                     logits = outputs['logits']
                     loss = nn.functional.cross_entropy(

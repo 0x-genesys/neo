@@ -8,33 +8,74 @@ import math
 from .generation_utils import apply_repetition_penalty
 
 
+class RotaryEmbedding(nn.Module):
+    """Rotary positional embeddings for attention queries and keys."""
+
+    def __init__(self, head_dim, base=10000):
+        super().__init__()
+        if head_dim % 2 != 0:
+            raise ValueError("RoPE requires an even attention head dimension")
+
+        inv_freq = 1.0 / (
+            base ** (torch.arange(0, head_dim, 2, dtype=torch.float32) / head_dim)
+        )
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+
+    def forward(self, seq_len, device, dtype):
+        positions = torch.arange(seq_len, device=device, dtype=self.inv_freq.dtype)
+        freqs = torch.outer(positions, self.inv_freq.to(device))
+        cos = freqs.cos().view(1, 1, seq_len, -1).to(dtype=dtype)
+        sin = freqs.sin().view(1, 1, seq_len, -1).to(dtype=dtype)
+        return cos, sin
+
+
+def apply_rotary_embedding(x, cos, sin):
+    """Apply RoPE to tensors shaped (batch, heads, seq_len, head_dim)."""
+    x_even = x[..., 0::2]
+    x_odd = x[..., 1::2]
+    rotated = torch.stack(
+        (x_even * cos - x_odd * sin, x_even * sin + x_odd * cos),
+        dim=-1,
+    )
+    return rotated.flatten(-2)
+
+
 class CausalSelfAttention(nn.Module):
-    """Multi-head causal self-attention with dropout."""
+    """Causal self-attention with optional RoPE, GQA, and SDPA flash attention."""
     
-    def __init__(self, d_model, num_heads, context_length, dropout=0.1):
+    def __init__(
+        self,
+        d_model,
+        num_heads,
+        context_length,
+        dropout=0.1,
+        use_rope=False,
+        gqa_num_kv_heads=None,
+        use_flash_attention=False,
+    ):
         super().__init__()
         assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
         
         self.num_heads = num_heads
         self.d_model = d_model
-        # Each head attends to a slice of the full embedding dimension
         self.head_dim = d_model // num_heads
+        self.num_kv_heads = gqa_num_kv_heads or num_heads
+        if self.num_heads % self.num_kv_heads != 0:
+            raise ValueError("num_heads must be divisible by gqa_num_kv_heads")
+        self.kv_group_size = self.num_heads // self.num_kv_heads
+        self.kv_dim = self.num_kv_heads * self.head_dim
+        self.use_flash_attention = use_flash_attention
+        self.dropout = dropout
         
-        # Combined QKV projection for efficiency
-        # Combined QKV projection for efficiency — one matmul instead of three
-        self.c_attn = nn.Linear(d_model, 3 * d_model)
-        # Output projection maps concatenated head outputs back to d_model
+        # Combined QKV projection keeps old checkpoint keys compatible when
+        # num_kv_heads == num_heads, while allowing smaller K/V projections for GQA.
+        self.c_attn = nn.Linear(d_model, d_model + 2 * self.kv_dim)
         self.c_proj = nn.Linear(d_model, d_model)
         
-        # Regularization
-        self.attn_dropout = nn.Dropout(dropout)
-        self.resid_dropout = nn.Dropout(dropout)
         self.attn_dropout = nn.Dropout(dropout)   # applied to attention weights
         self.resid_dropout = nn.Dropout(dropout)  # applied after output projection
+        self.rotary_emb = RotaryEmbedding(self.head_dim) if use_rope else None
         
-        # Causal mask
-        # Causal mask: lower-triangular matrix ensures each position can only
-        # attend to itself and earlier positions (no future token leakage)
         self.register_buffer(
             "bias",
             torch.tril(torch.ones(context_length, context_length))
@@ -44,67 +85,100 @@ class CausalSelfAttention(nn.Module):
     def forward(self, x):
         B, T, C = x.size()
 
-        # Calculate Q, K, V
-        B, T, C = x.size()  # batch size, sequence length, embedding dimensionality
-
-        # Project input to queries, keys, and values in a single pass
         qkv = self.c_attn(x)
-        q, k, v = qkv.split(self.d_model, dim=2)
+        q, k, v = qkv.split((self.d_model, self.kv_dim, self.kv_dim), dim=2)
         
-        # Reshape for multi-head attention
-        # Reshape from (B, T, C) to (B, num_heads, T, head_dim) for parallel head computation
-        k = k.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
         q = q.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
-        v = v.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        k = k.view(B, T, self.num_kv_heads, self.head_dim).transpose(1, 2)
+        v = v.view(B, T, self.num_kv_heads, self.head_dim).transpose(1, 2)
 
-        # Scaled dot-product attention
-        # Scaled dot-product attention: scale by 1/sqrt(head_dim) to keep gradients stable
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        # Mask out future positions by setting their logits to -inf before softmax
-        att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float('-inf'))
-        # Softmax normalizes across the key dimension, turning logits into probabilities
-        att = F.softmax(att, dim=-1)
-        att = self.attn_dropout(att)
-        
-        # Apply attention to values
-        # Weighted sum of values using the attention distribution
-        y = att @ v
-        # Re-assemble all head outputs side by side: (B, num_heads, T, head_dim) -> (B, T, C)
+        if self.rotary_emb is not None:
+            cos, sin = self.rotary_emb(T, device=x.device, dtype=q.dtype)
+            q = apply_rotary_embedding(q, cos, sin)
+            k = apply_rotary_embedding(k, cos, sin)
+
+        if self.num_kv_heads != self.num_heads:
+            k = k.repeat_interleave(self.kv_group_size, dim=1)
+            v = v.repeat_interleave(self.kv_group_size, dim=1)
+
+        if self.use_flash_attention:
+            y = F.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                attn_mask=None,
+                dropout_p=self.dropout if self.training else 0.0,
+                is_causal=True,
+            )
+        else:
+            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+            att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float('-inf'))
+            att = F.softmax(att, dim=-1)
+            att = self.attn_dropout(att)
+            y = att @ v
+
         y = y.transpose(1, 2).contiguous().view(B, T, C)
-        
-        # Output projection
-        # Final linear projection and residual dropout
         y = self.resid_dropout(self.c_proj(y))
         return y
 
 
 class FeedForward(nn.Module):
-    """Position-wise feed-forward network."""
+    """Position-wise feed-forward network with optional SwiGLU."""
     
-    def __init__(self, d_model, dropout=0.1):
+    def __init__(self, d_model, dropout=0.1, use_swiglu=False):
         super().__init__()
-        # Expand to 4x d_model in the hidden layer, then project back — standard GPT ratio
-        self.net = nn.Sequential(
-            nn.Linear(d_model, 4 * d_model),
-            nn.GELU(),
-            nn.Linear(4 * d_model, d_model),
-            nn.Dropout(dropout)
-        )
+        self.use_swiglu = use_swiglu
+
+        if use_swiglu:
+            hidden_dim = int((8 * d_model) / 3)
+            self.gate_proj = nn.Linear(d_model, hidden_dim)
+            self.up_proj = nn.Linear(d_model, hidden_dim)
+            self.down_proj = nn.Linear(hidden_dim, d_model)
+            self.dropout = nn.Dropout(dropout)
+        else:
+            self.net = nn.Sequential(
+                nn.Linear(d_model, 4 * d_model),
+                nn.GELU(),
+                nn.Linear(4 * d_model, d_model),
+                nn.Dropout(dropout)
+            )
     
     def forward(self, x):
+        if self.use_swiglu:
+            x = F.silu(self.gate_proj(x)) * self.up_proj(x)
+            return self.dropout(self.down_proj(x))
         return self.net(x)
 
 
 class TransformerBlock(nn.Module):
     """Transformer block with pre-norm architecture and optional gradient checkpointing."""
     
-    def __init__(self, d_model, num_heads, context_length, dropout=0.1, use_gradient_checkpointing=False):
+    def __init__(
+        self,
+        d_model,
+        num_heads,
+        context_length,
+        dropout=0.1,
+        use_gradient_checkpointing=False,
+        use_swiglu=False,
+        use_rope=False,
+        gqa_num_kv_heads=None,
+        use_flash_attention=False,
+    ):
         super().__init__()
         self.use_gradient_checkpointing = use_gradient_checkpointing
         self.ln_1 = nn.LayerNorm(d_model)  # layer norm before attention
-        self.attn = CausalSelfAttention(d_model, num_heads, context_length, dropout)
+        self.attn = CausalSelfAttention(
+            d_model,
+            num_heads,
+            context_length,
+            dropout,
+            use_rope=use_rope,
+            gqa_num_kv_heads=gqa_num_kv_heads,
+            use_flash_attention=use_flash_attention,
+        )
         self.ln_2 = nn.LayerNorm(d_model)  # layer norm before feed-forward
-        self.mlp = FeedForward(d_model, dropout)
+        self.mlp = FeedForward(d_model, dropout, use_swiglu=use_swiglu)
 
     def forward(self, x):
         # Use gradient checkpointing if enabled and in training mode
@@ -151,12 +225,28 @@ class DecoderOnlyTransformer(nn.Module):
     - main_input_name: Input parameter name (required by some PEFT wrappers)
     """
     
-    def __init__(self, vocab_size, d_model, num_heads, num_layers, 
-                 context_length, dropout=0.1, use_gradient_checkpointing=False):
+    def __init__(
+        self,
+        vocab_size,
+        d_model,
+        num_heads,
+        num_layers,
+        context_length,
+        dropout=0.1,
+        use_gradient_checkpointing=False,
+        use_swiglu=False,
+        use_rope=False,
+        gqa_num_kv_heads=None,
+        use_flash_attention=False,
+    ):
         super().__init__()
         self.context_length = context_length
         self.d_model = d_model
         self.use_gradient_checkpointing = use_gradient_checkpointing
+        self.use_rope = use_rope
+        self.use_swiglu = use_swiglu
+        self.gqa_num_kv_heads = gqa_num_kv_heads or num_heads
+        self.use_flash_attention = use_flash_attention
         
         # PEFT Compatibility: Create config object
         # This is required by PEFT for saving/loading adapter metadata
@@ -174,6 +264,10 @@ class DecoderOnlyTransformer(nn.Module):
             d_model=d_model,  
             num_heads=num_heads,
             num_layers=num_layers,
+            use_swiglu=use_swiglu,
+            use_rope=use_rope,
+            gqa_num_kv_heads=self.gqa_num_kv_heads,
+            use_flash_attention=use_flash_attention,
             _name_or_path="0x-genesys/neo_weights_checkpoints"
         )
         
@@ -190,14 +284,23 @@ class DecoderOnlyTransformer(nn.Module):
         
         # Token and position embeddings
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        # Learned absolute position embeddings, one vector per position up to context_length
-        self.position_embedding = nn.Embedding(context_length, d_model)
+        self.position_embedding = None if use_rope else nn.Embedding(context_length, d_model)
         self.drop = nn.Dropout(dropout)
         
         # Transformer blocks
         # Stack of identical transformer blocks with optional gradient checkpointing
         self.blocks = nn.ModuleList([
-            TransformerBlock(d_model, num_heads, context_length, dropout, use_gradient_checkpointing)
+            TransformerBlock(
+                d_model,
+                num_heads,
+                context_length,
+                dropout,
+                use_gradient_checkpointing,
+                use_swiglu=use_swiglu,
+                use_rope=use_rope,
+                gqa_num_kv_heads=self.gqa_num_kv_heads,
+                use_flash_attention=use_flash_attention,
+            )
             for _ in range(num_layers)
         ])
         
@@ -232,7 +335,7 @@ class DecoderOnlyTransformer(nn.Module):
     def get_num_params(self, non_embedding=False):
         """Return the number of parameters in the model."""
         n_params = sum(p.numel() for p in self.parameters())
-        if non_embedding:
+        if non_embedding and self.position_embedding is not None:
             # Optionally exclude position embeddings, which don't contribute to
             # the model's representational capacity in the same way as other params
             n_params -= self.position_embedding.weight.numel()
@@ -262,14 +365,13 @@ class DecoderOnlyTransformer(nn.Module):
         B, T = idx.size()
         assert T <= self.context_length, f"Sequence length {T} exceeds context length {self.context_length}"
         
-        # Token and position embeddings
-        # Look up token embeddings and create a position index tensor [0, 1, ..., T-1]
         tok_emb = self.token_embedding(idx)
-        pos = torch.arange(0, T, dtype=torch.long, device=idx.device)
-        pos_emb = self.position_embedding(pos)
-        
-        # Sum token and position embeddings, then apply dropout
-        x = self.drop(tok_emb + pos_emb)
+        if self.use_rope:
+            x = self.drop(tok_emb)
+        else:
+            pos = torch.arange(0, T, dtype=torch.long, device=idx.device)
+            pos_emb = self.position_embedding(pos)
+            x = self.drop(tok_emb + pos_emb)
         
         # Apply transformer blocks
         # Pass through each transformer block sequentially
@@ -289,21 +391,28 @@ class DecoderOnlyTransformer(nn.Module):
                     "DataLoader should return unshifted labels; model applies causal shift."
                 )
 
-            # Determine ignore_index based on what values are in targets
-            if (targets == -100).any():
-                ignore_index = -100  # Finetuning mode
-            else:
-                ignore_index = -1  # Base training mode
-            
             # Unconditionally apply causal shift: predict token[i+1] from token[i]
             shift_logits = logits[:, :-1, :].contiguous()
             shift_targets = targets[:, 1:].contiguous()
+
+            pad_token_id = 100257
             
-            # Flatten batch and time dimensions for cross-entropy
+            # --- TPU-SAFE PAD NORMALIZATION ---
+            # Instead of a Python 'if' statement checking the tensor content, 
+            # we use tensor math to map any -1 padding values to -100.
+            # This compiles flawlessly on XLA without triggering a graph break.
+            shift_targets = torch.where(
+                shift_targets == -1 | (shift_targets == pad_token_id), 
+                torch.tensor(-100, dtype=shift_targets.dtype, device=shift_targets.device), 
+                shift_targets
+            )
+            
+            # Flatten batch and time dimensions for cross-entropy, 
+            # using the now-unified -100 ignore_index.
             loss = F.cross_entropy(
                 shift_logits.view(-1, shift_logits.size(-1)),
                 shift_targets.view(-1),
-                ignore_index=ignore_index
+                ignore_index=-100
             )
         
         return logits, loss
@@ -411,19 +520,36 @@ class DecoderOnlyTransformer(nn.Module):
 
 def create_model(config):
     """Factory function to create model from config."""
-    use_gradient_checkpointing = config['model'].get('use_gradient_checkpointing', False)
+    model_config = config['model']
+    use_gradient_checkpointing = model_config.get('use_gradient_checkpointing', False)
+    use_swiglu = model_config.get('use_swiglu', False)
+    use_rope = model_config.get('use_rope', False)
+    gqa_num_kv_heads = model_config.get('gqa_num_kv_heads')
+    use_flash_attention = model_config.get('use_flash_attention', False)
     
     model = DecoderOnlyTransformer(
-        vocab_size=config['model']['vocab_size'],
-        d_model=config['model']['d_model'],
-        num_heads=config['model']['num_heads'],
-        num_layers=config['model']['num_layers'],
-        context_length=config['model']['context_length'],
-        dropout=config['model']['dropout'],
-        use_gradient_checkpointing=use_gradient_checkpointing
+        vocab_size=model_config['vocab_size'],
+        d_model=model_config['d_model'],
+        num_heads=model_config['num_heads'],
+        num_layers=model_config['num_layers'],
+        context_length=model_config['context_length'],
+        dropout=model_config['dropout'],
+        use_gradient_checkpointing=use_gradient_checkpointing,
+        use_swiglu=use_swiglu,
+        use_rope=use_rope,
+        gqa_num_kv_heads=gqa_num_kv_heads,
+        use_flash_attention=use_flash_attention,
     )
     
     if use_gradient_checkpointing:
         print("✅ Gradient checkpointing enabled (saves memory, slightly slower)")
+    if use_swiglu:
+        print("✅ SwiGLU MLP enabled")
+    if use_rope:
+        print("✅ RoPE positional embeddings enabled")
+    if gqa_num_kv_heads:
+        print(f"✅ GQA enabled ({model_config['num_heads']} query heads, {gqa_num_kv_heads} KV heads)")
+    if use_flash_attention:
+        print("✅ Flash attention enabled via PyTorch SDPA")
     
     return model
