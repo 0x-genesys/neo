@@ -325,7 +325,7 @@ class TextGenerator:
         
         # Forward pass
         with torch.no_grad():
-            logits, loss = self.model(input_ids, input_ids)
+            logits, loss = self.model(input_ids=input_ids, targets=input_ids)
         
         # Calculate perplexity
         perplexity = torch.exp(loss).item()

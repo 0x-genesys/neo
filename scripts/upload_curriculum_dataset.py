@@ -14,6 +14,32 @@ import argparse
 from huggingface_hub import HfApi, create_repo
 
 
+CURRICULUM_SOURCES = ("wikitext", "ultrachat")
+
+
+def filter_stats_for_curriculum(stats):
+    """Keep only the two Conversational Scholar curriculum sources."""
+    sources = {
+        source: stats.get('sources', {}).get(source, {'docs': 0, 'tokens': 0})
+        for source in CURRICULUM_SOURCES
+        if stats.get('sources', {}).get(source, {}).get('tokens', 0) > 0
+    }
+    total_docs = sum(info.get('docs', 0) for info in sources.values())
+    total_tokens = sum(info.get('tokens', 0) for info in sources.values())
+
+    filtered = dict(stats)
+    filtered['sources'] = sources
+    filtered['totals'] = {
+        'documents': total_docs,
+        'tokens': total_tokens,
+    }
+    filtered['targets'] = {
+        'wikitext': 240_000_000,
+        'ultrachat': 60_000_000,
+    }
+    return filtered
+
+
 def prepare_and_upload_curriculum_dataset(
     data_dir: str,
     repo_id: str,
@@ -49,43 +75,57 @@ def prepare_and_upload_curriculum_dataset(
     
     with open(stats_file, 'r') as f:
         stats = json.load(f)
+    stats = filter_stats_for_curriculum(stats)
     
     print(f"✅ Loaded stats from {stats_file}")
     for source, info in stats['sources'].items():
         if info['tokens'] > 0:
             print(f"  {source:12s}: {info['tokens']:,} tokens")
     
-    # Step 2: Load combined train file
-    print(f"\nStep 2: Loading combined dataset...")
-    train_file = data_dir / "train.bin"
-    if not train_file.exists():
-        raise FileNotFoundError(f"Train file not found: {train_file}")
-    
-    tokens = np.memmap(train_file, dtype=np.uint32, mode='r')
-    total_tokens = len(tokens)
-    print(f"✅ Loaded {total_tokens:,} tokens from {train_file}")
-    
-    # Step 3: Split into source files
-    print(f"\nStep 3: Splitting into source files...")
-    sources = stats['sources']
+    # Step 2: Load source data
+    print(f"\nStep 2: Loading source data...")
+    source_names = list(stats['sources'].keys())
+    if not source_names:
+        raise ValueError("No wikitext or ultrachat sources found in dataset_stats.json")
+
+    source_files_exist = all((data_dir / f"{source}_train.bin").exists() for source in source_names)
     source_ranges = {}
-    current_pos = 0
-    
-    for source, info in sources.items():
-        if info['tokens'] > 0:
-            source_tokens = info['tokens']
+
+    if source_files_exist:
+        print("✅ Found existing per-source files")
+        tokens = None
+    else:
+        train_file = data_dir / "train.bin"
+        if not train_file.exists():
+            raise FileNotFoundError(f"Train file not found: {train_file}")
+
+        tokens = np.memmap(train_file, dtype=np.uint32, mode='r')
+        total_tokens = len(tokens)
+        print(f"✅ Loaded {total_tokens:,} tokens from {train_file}")
+
+        current_pos = 0
+        for source in source_names:
+            source_tokens = stats['sources'][source]['tokens']
             source_ranges[source] = (current_pos, current_pos + source_tokens)
             current_pos += source_tokens
-    
-    for source, (start, end) in source_ranges.items():
+
+    # Step 3: Write source files
+    print(f"\nStep 3: Writing source files...")
+
+    for source in source_names:
         output_file = temp_dir / f"{source}_train.bin"
         
         print(f"\n  Processing {source}...")
-        print(f"    Range: {start:,} - {end:,}")
         print(f"    Output: {output_file}")
         
-        # Extract and save
-        source_tokens = tokens[start:end]
+        source_file = data_dir / f"{source}_train.bin"
+        if source_file.exists():
+            source_tokens = np.memmap(source_file, dtype=np.uint32, mode='r')
+        else:
+            start, end = source_ranges[source]
+            print(f"    Range: {start:,} - {end:,}")
+            source_tokens = tokens[start:end]
+
         with open(output_file, 'wb') as f:
             source_tokens.tofile(f)
         
@@ -146,7 +186,7 @@ def prepare_and_upload_curriculum_dataset(
     ]
     
     # Add source files
-    for source in source_ranges.keys():
+    for source in source_names:
         files_to_upload.append(f"{source}_train.bin")
     
     print(f"\nUploading {len(files_to_upload)} files...")
@@ -215,24 +255,18 @@ This dataset is prepared for curriculum learning with separate source files for 
     
     readme += """## Files
 
-- `wikitext_train.bin` - WikiText-103 training data (facts and encyclopedic knowledge)
-- `stack_train.bin` - The Stack training data (code and logical reasoning)
-- `ultrachat_train.bin` - UltraChat training data (conversational behavior)
-- `val.bin` - Validation set (mixed, fixed distribution)
+- `wikitext_train.bin` - WikiText/factual training data
+- `ultrachat_train.bin` - UltraChat conversational training data
+- `val.bin` - Validation data
 - `dataset_stats.json` - Dataset statistics and metadata
 
 ## Curriculum Learning Strategy
 
-This dataset enables curriculum learning with progressive distribution changes across epochs:
+This dataset uses the Conversational Scholar mix across all pretraining epochs:
 
-| Phase | Epoch | WikiText (Facts) | Stack (Logic) | UltraChat (Behavior) | Objective |
-|-------|-------|------------------|---------------|----------------------|-----------|
-| Current | 1 | 28% | 13% | 59% | Pattern Discovery |
-| Foundation | 2-3 | 70% | 20% | 10% | Knowledge/Logic Hardening |
-| Bridge A | 4 | 50% | 25% | 25% | Balanced Contextualization |
-| Bridge B | 5 | 35% | 25% | 40% | Priority Shift |
-| Bridge C | 6 | 20% | 20% | 60% | Instruction Emergence |
-| Refinement | 7-8 | 10% | 10% | 80% | Behavior & Formatting |
+| Epoch | WikiText/Factual | UltraChat |
+|-------|------------------|-----------|
+| 1-8 | 80% | 20% |
 
 ## Usage
 
@@ -255,7 +289,7 @@ data:
   val_file: "data/balanced_300m_curriculum/val.bin"
   
   huggingface_dataset:
-    repo_id: "0x-genesys/mix_wiki_code_chat_data_300M_tokens_curriculum"
+    repo_id: "0x-genesys/mix_wiki_chat_data_300M_tokens_curriculum"
     dataset_name: "balanced_300m_curriculum"
     auto_download: true
 
@@ -264,17 +298,16 @@ training:
     enabled: true
     sources:
       - "wikitext"
-      - "stack"
       - "ultrachat"
     epoch_distributions:
-      1:  [28, 13, 59]
-      2:  [70, 20, 10]
-      3:  [70, 20, 10]
-      4:  [50, 25, 25]
-      5:  [35, 25, 40]
-      6:  [20, 20, 60]
-      7:  [10, 10, 80]
-      8:  [10, 10, 80]
+      1: [80, 20]
+      2: [80, 20]
+      3: [80, 20]
+      4: [80, 20]
+      5: [80, 20]
+      6: [80, 20]
+      7: [80, 20]
+      8: [80, 20]
 ```
 
 ### Manual Download
@@ -283,9 +316,9 @@ training:
 from huggingface_hub import hf_hub_download
 
 # Download all source files
-for source in ['wikitext', 'stack', 'ultrachat']:
+for source in ['wikitext', 'ultrachat']:
     hf_hub_download(
-        repo_id="0x-genesys/mix_wiki_code_chat_data_300M_tokens_curriculum",
+        repo_id="0x-genesys/mix_wiki_chat_data_300M_tokens_curriculum",
         filename=f"{source}_train.bin",
         repo_type="dataset",
         local_dir="data/balanced_300m_curriculum"
@@ -293,7 +326,7 @@ for source in ['wikitext', 'stack', 'ultrachat']:
 
 # Download validation file
 hf_hub_download(
-    repo_id="0x-genesys/mix_wiki_code_chat_data_300M_tokens_curriculum",
+    repo_id="0x-genesys/mix_wiki_chat_data_300M_tokens_curriculum",
     filename="val.bin",
     repo_type="dataset",
     local_dir="data/balanced_300m_curriculum"
@@ -306,11 +339,11 @@ If you use this dataset, please cite:
 
 ```bibtex
 @dataset{{curriculum_300m_2024,
-  title={{Curriculum Learning Dataset - 300M Tokens}},
+  title={{Conversational Scholar Curriculum Dataset - 300M Tokens}},
   author={{0x-genesys}},
   year={{2024}},
   publisher={{Hugging Face}},
-  howpublished={{\\url{{https://huggingface.co/datasets/0x-genesys/mix_wiki_code_chat_data_300M_tokens_curriculum}}}}
+  howpublished={{\\url{{https://huggingface.co/datasets/0x-genesys/mix_wiki_chat_data_300M_tokens_curriculum}}}}
 }}
 ```
 
@@ -318,13 +351,12 @@ If you use this dataset, please cite:
 
 This dataset combines data from multiple sources. Please refer to the original licenses:
 - WikiText-103: Creative Commons Attribution-ShareAlike License
-- The Stack: Multiple licenses (see The Stack dataset)
 - UltraChat: MIT License
 
 ## Related
 
 - **Model Repository**: [0x-genesys/neo_weights_checkpoints](https://huggingface.co/0x-genesys/neo_weights_checkpoints)
-- **Combined Dataset**: [0x-genesys/mix_wiki_code_chat_data_300M_tokens](https://huggingface.co/datasets/0x-genesys/mix_wiki_code_chat_data_300M_tokens)
+- **Combined Dataset**: [0x-genesys/mix_wiki_chat_data_300M_tokens](https://huggingface.co/datasets/0x-genesys/mix_wiki_chat_data_300M_tokens)
 - **Training Code**: [GitHub Repository](https://github.com/yourusername/neo)
 """
     
@@ -342,7 +374,7 @@ def main():
     parser.add_argument(
         '--repo-id',
         type=str,
-        default='0x-genesys/mix_wiki_code_chat_data_300M_tokens_curriculum',
+        default='0x-genesys/mix_wiki_chat_data_300M_tokens_curriculum',
         help='HuggingFace repository ID'
     )
     parser.add_argument(

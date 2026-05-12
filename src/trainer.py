@@ -428,7 +428,7 @@ class Trainer:
                 autocast_context = nullcontext()
             
             with autocast_context:
-                logits, loss = self.model(input_ids, targets)
+                logits, loss = self.model(input_ids=input_ids, targets=targets)
                 
                 # Handle DataParallel: loss is a vector [num_gpus], need to reduce to scalar
                 if isinstance(loss, torch.Tensor) and loss.dim() > 0:
@@ -672,7 +672,7 @@ class Trainer:
                 
                 if epoch_num in epoch_distributions:
                     new_distribution = epoch_distributions[epoch_num]
-                    sources = curriculum_config.get('sources', ['wikitext', 'stack', 'ultrachat'])
+                    sources = curriculum_config.get('sources', ['wikitext', 'ultrachat'])
                     
                     print(f"\n{'='*80}")
                     print(f"🎓 CURRICULUM UPDATE - Epoch {epoch_num}")
