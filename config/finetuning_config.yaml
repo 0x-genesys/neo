@@ -26,15 +26,15 @@ lora:
 # Training Configuration
 training:
   # Batch settings (hardware-adaptive)
-  batch_size: 8            # Per-device batch size (auto-adjusted)
+  batch_size: 4            # Per-device batch size (auto-adjusted)
   gradient_accumulation_steps: 4  # Effective batch = batch_size * grad_accum
   
   # Training duration
-  num_epochs: 3
+  num_epochs: 1
   max_steps: null          # Optional: limit total steps
   
   # Optimizer settings
-  learning_rate: 2.0e-5    # Fixed LR (DO NOT CHANGE - prevents catastrophic forgetting)
+  learning_rate: 1.5e-5    # Fixed LR (DO NOT CHANGE - prevents catastrophic forgetting)
   weight_decay: 0.05
   optimizer: adamw
   betas: [0.9, 0.999]
@@ -49,7 +49,7 @@ training:
   
   # Logging and checkpointing
   logging_steps: 10        # Log every N steps
-  eval_steps: 100          # Evaluate every N steps
+  eval_steps: 200          # Evaluate every N steps
   save_steps: 500          # Save checkpoint every N steps
   
   # Mixed precision
@@ -57,8 +57,8 @@ training:
 
 # Data Configuration
 data:
-  train_path: data/cot_train.jsonl
-  val_path: data/cot_val.jsonl
+  train_path: data/factual/factual_train.jsonl
+  val_path: data/factual/factual_val.jsonl
   max_length: 512          # Maximum sequence length
   num_workers: 0           # DataLoader workers (0 for compatibility)
   
@@ -66,6 +66,13 @@ data:
   hf_mix:
     orca_samples_target: 2500         # Reduced logic anchor
     dolly_samples_target: null        # null = all valid Dolly samples
+    identity_samples: 50
+  
+  # HuggingFace dataset mix for scripts/prepare_factual_finetuning_data.py hf
+  # For factual correction fine-tuning
+  factual_hf_mix:
+    sciq_samples_target: 2000         # Science questions for factual grounding
+    dolly_samples_target: 2000        # Filtered Dolly samples (open_qa + general_qa)
     identity_samples: 50
   
   # System prompt (embedded in all conversations)

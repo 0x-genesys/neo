@@ -149,10 +149,13 @@ class CoTDataset(Dataset):
             )
             
             # Thought process (if present)
-            if 'thought' in example and example['thought']:
-                formatted_parts.append(
-                    self._format_message(SPECIAL_TOKENS['thought'], example['thought'])
-                )
+            # Thought process (Always include the tokens to maintain structure)
+            # If 'thought' is missing or null, it defaults to an empty string
+            thought_content = example.get('thought') or ""
+            
+            formatted_parts.append(
+                self._format_message(SPECIAL_TOKENS['thought'], thought_content)
+            )
             
             # Assistant response
             formatted_parts.append(
@@ -257,11 +260,11 @@ class CoTDataset(Dataset):
                         role_tokens = input_ids[i+1:role_check_end].tolist()
                         role_text = self.tokenizer.decode(role_tokens).lower()
                         
-                        # Mask system and user, keep thought and assistant
+                        # Mask system, user. ONLY train on the Assistant response.
                         if 'system' in role_text or 'user' in role_text:
                             # Mask this entire block
                             labels[i:end_idx+1] = -100
-                        # else: keep thought and assistant for training
+                        # else: keep assistant for training
                     
                     i = end_idx + 1
                 else:
@@ -684,25 +687,42 @@ def pull_and_process_hf_datasets(
             if context:
                 user_message = f"{context}\n\n{instruction}"
             
-            # Create thought based on category
+            # Create thought based on category - use diverse, fact-based thoughts
+            # Randomize prefixes to prevent the model from memorizing a single 'filler' sentence
+            import random
+            open_qa_prefixes = [
+                f"Analyzing the query regarding",
+                f"Let me look into",
+                f"Looking at the question about",
+                f"Examining the topic of",
+                f"Considering the question on"
+            ]
+            general_qa_prefixes = [
+                f"Providing information about",
+                f"Focusing on the topic of",
+                f"Delivering facts about",
+                f"Sharing knowledge about",
+                f"Addressing the topic of"
+            ]
+            
             if category == 'closed_qa':
-                thought = "I'll analyze the context and provide a precise answer to this question."
+                thought = f"I'll analyze the context and provide a precise answer. Context: {context[:100]}..."
             elif category == 'open_qa':
-                thought = "Let me think about this question and provide a comprehensive answer."
+                thought = f"{random.choice(open_qa_prefixes)}: {instruction[:100]}..."
             elif category == 'summarization':
-                thought = "I'll read through the content and create a concise summary of the key points."
+                thought = f"I'll read through the content and create a concise summary. The text is about: {context[:100]}..."
             elif category == 'information_extraction':
-                thought = "I'll extract the relevant information from the provided text."
+                thought = f"I'll extract the relevant information from the provided text. Topic: {context[:100]}..."
             elif category == 'creative_writing':
-                thought = "I'll use creativity to craft an engaging response."
+                thought = f"I'll use creativity to craft an engaging response. The prompt is: {instruction[:100]}..."
             elif category == 'general_qa':
-                thought = "I'll provide a clear and helpful answer to this question."
+                thought = f"{random.choice(general_qa_prefixes)}: {instruction[:100]}..."
             elif category == 'brainstorming':
-                thought = "Let me generate some creative ideas for this."
+                thought = f"Let me generate some creative ideas for this. The topic is: {instruction[:100]}..."
             elif category == 'classification':
-                thought = "I'll analyze this and provide the appropriate classification."
+                thought = f"I'll analyze this and provide the appropriate classification. The item is: {instruction[:100]}..."
             else:
-                thought = "I will analyze this request and provide a helpful response."
+                thought = f"I will analyze this request and provide a helpful response. Category: {category}."
             
             example = {
                 "instruction": user_message,

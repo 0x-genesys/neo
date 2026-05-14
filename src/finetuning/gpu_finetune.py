@@ -42,35 +42,91 @@ def detect_gpu_device():
     return device
 
 
+def load_config_from_yaml(config_path: str) -> dict:
+    """
+    Load configuration from YAML file and merge with CLI defaults.
+    
+    Args:
+        config_path: Path to YAML config file
+        
+    Returns:
+        Merged configuration dictionary
+    """
+    config = {}
+    config_path_obj = Path(config_path)
+    
+    if config_path_obj.exists():
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f) or {}
+        print(f"✅ Loaded config from: {config_path}")
+    else:
+        print(f"⚠️  Config file not found: {config_path}")
+        print("   Using built-in defaults")
+    
+    return config
+
+
+def get_config_value(config: dict, cli_value, cli_default, *keys):
+    """
+    Get a value from config, CLI args, or default.
+    
+    Priority: CLI arg > YAML config > CLI default
+    
+    Args:
+        config: YAML config dictionary
+        cli_value: Value from CLI args (None if not provided)
+        cli_default: Default value from CLI parser
+        *keys: Path to value in nested config dict
+        
+    Returns:
+        Value from highest priority source
+    """
+    if cli_value is not None:
+        return cli_value
+    
+    # Navigate nested config
+    value = config
+    for key in keys:
+        if isinstance(value, dict):
+            value = value.get(key)
+        else:
+            return cli_default
+    
+    if value is not None:
+        return value
+    
+    return cli_default
+
+
 def main():
     """Main GPU fine-tuning script."""
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='GPU Fine-Tuning for 117M Transformer with LoRA + CoT')
     
     # Model arguments
-    parser.add_argument('--config', type=str, default='config/auto_training_117m_balanced.yaml',
+    parser.add_argument('--config', type=str, default='config/finetuning_config.yaml',
                         help='Path to model config YAML file')
-    parser.add_argument('--model', type=str, default='checkpoints/best_model.pt',
+    parser.add_argument('--model', type=str, default=None,
                         help='Path to local pre-trained model checkpoint')
     parser.add_argument('--model-remote', type=str, default=None,
                         help='Checkpoint filename from HuggingFace Hub (e.g., "best_model.pt")')
-    parser.add_argument('--model-repo', type=str, default='0x-genesys/neo_weights_checkpoints',
+    parser.add_argument('--model-repo', type=str, default=None,
                         help='HuggingFace model repository ID')
     
     # Data arguments
-    parser.add_argument('--train-data', type=str, default='data/cot_train.jsonl',
+    parser.add_argument('--train-data', type=str, default=None,
                         help='Path to training data (JSONL)')
-    parser.add_argument('--val-data', type=str, default='data/cot_val.jsonl',
+    parser.add_argument('--val-data', type=str, default=None,
                         help='Path to validation data (JSONL)')
     
     # Training arguments
-    parser.add_argument('--output-dir', type=str, default='finetuned_model_gpu',
+    parser.add_argument('--output-dir', type=str, default=None,
                         help='Output directory for fine-tuned model')
-    parser.add_argument('--batch-size', type=int, default=8,
+    parser.add_argument('--batch-size', type=int, default=None,
                         help='Training batch size')
-    parser.add_argument('--epochs', type=int, default=3,
+    parser.add_argument('--epochs', type=int, default=None,
                         help='Number of training epochs')
-    parser.add_argument('--lr', type=float, default=2.0e-5,
+    parser.add_argument('--lr', type=float, default=None,
                         help='Learning rate')
     
     # Resume arguments
@@ -80,19 +136,19 @@ def main():
                         help='Checkpoint filename from HuggingFace Hub to resume from')
     
     # Upload arguments
-    parser.add_argument('--upload', action='store_true', default=True,
+    parser.add_argument('--upload', action='store_true', default=None,
                         help='Upload best model to HuggingFace Hub (default: True)')
     parser.add_argument('--no-upload', dest='upload', action='store_false',
                         help='Disable upload to HuggingFace Hub')
-    parser.add_argument('--upload-repo', type=str, default='0x-genesys/neo_weights_checkpoints',
+    parser.add_argument('--upload-repo', type=str, default=None,
                         help='HuggingFace repository for upload')
-    parser.add_argument('--upload-path', type=str, default='finetune/',
+    parser.add_argument('--upload-path', type=str, default=None,
                         help='Path prefix in repository (e.g., "finetune/")')
     
     # Evaluation arguments
     parser.add_argument('--eval-steps', type=int, default=None,
                         help='Evaluate every N steps (default: 1000 or once per epoch, whichever is smaller)')
-    parser.add_argument('--save-steps', type=int, default=1000,
+    parser.add_argument('--save-steps', type=int, default=None,
                         help='Save checkpoint every N steps (default: 1000)')
     
     # Multi-GPU arguments
@@ -102,35 +158,59 @@ def main():
     args = parser.parse_args()
     
     print("\n" + "="*80)
-    print("🚀 GPU Fine-Tuning for 117M Transformer with LoRA + CoT")
+    print("🚀 GPU Fine-Tuning for Transformer with LoRA + CoT")
     print("="*80 + "\n")
     
     # ============================================================================
     # Load Configuration from YAML
     # ============================================================================
     
-    config_path = Path(args.config)
-    if not config_path.exists():
-        print(f"❌ Config file not found: {config_path}")
-        print(f"   Using default 117M configuration")
-        config = {
-            'model': {
-                'vocab_size': 100277,
-                'd_model': 768,
-                'num_heads': 12,
-                'num_layers': 12,
-                'context_length': 512,
-                'dropout': 0.1,
-            }
-        }
-    else:
-        print(f"📄 Loading config from: {config_path}")
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-        print(f"✅ Config loaded successfully")
+    config = load_config_from_yaml(args.config)
     
     # Extract model config
-    MODEL_CONFIG = config['model']
+    MODEL_CONFIG = config.get('model', {})
+    if not MODEL_CONFIG:
+        MODEL_CONFIG = {
+            'vocab_size': 100277,
+            'd_model': 768,
+            'num_heads': 12,
+            'num_layers': 12,
+            'context_length': 512,
+            'dropout': 0.1,
+        }
+    
+    # Fill in missing model config values
+    MODEL_CONFIG['vocab_size'] = MODEL_CONFIG.get('vocab_size', 100277)
+    MODEL_CONFIG['d_model'] = MODEL_CONFIG.get('d_model', 768)
+    MODEL_CONFIG['num_heads'] = MODEL_CONFIG.get('num_heads', 12)
+    MODEL_CONFIG['num_layers'] = MODEL_CONFIG.get('num_layers', 12)
+    MODEL_CONFIG['context_length'] = MODEL_CONFIG.get('context_length', 512)
+    MODEL_CONFIG['dropout'] = MODEL_CONFIG.get('dropout', 0.1)
+    
+    # Extract training config
+    TRAIN_YAML = config.get('training', {})
+    
+    # Extract LoRA config
+    LORA_YAML = config.get('lora', {})
+    
+    # Extract data config
+    DATA_YAML = config.get('data', {})
+    
+    # Extract checkpoint config
+    CHECKPOINT_YAML = config.get('checkpoint', {})
+    
+    # Extract generation config
+    GENERATION_YAML = config.get('generation', {})
+    
+    # Extract device config
+    DEVICE_YAML = config.get('device', {})
+    
+    # Extract logging config
+    LOGGING_YAML = config.get('logging', {})
+    
+    # Extract advanced config
+    ADVANCED_YAML = config.get('advanced', {})
+    
     print(f"\n📊 Model Configuration:")
     print(f"   Vocabulary: {MODEL_CONFIG['vocab_size']:,}")
     print(f"   Dimensions: {MODEL_CONFIG['d_model']}")
@@ -144,38 +224,39 @@ def main():
     eval_steps_arg = args.eval_steps
     save_steps_arg = args.save_steps
     
-    # Training configuration
+    # Training configuration - use YAML values when CLI args not provided
     TRAIN_CONFIG = {
-        'batch_size': args.batch_size,
-        'gradient_accumulation_steps': 4,  # Effective batch = batch_size * 4
-        'num_epochs': args.epochs,
-        'learning_rate': args.lr,
-        'weight_decay': 0.05,
-        'warmup_ratio': 0.1,  # 10% warmup
-        'max_grad_norm': 1.0,
-        'logging_steps': 10,
-        'eval_steps': 1000,  # Will be updated after loading dataset
-        'save_steps': save_steps_arg,
+        'batch_size': get_config_value(TRAIN_YAML, args.batch_size, 8, 'batch_size'),
+        'gradient_accumulation_steps': get_config_value(TRAIN_YAML, None, 4, 'gradient_accumulation_steps'),
+        'num_epochs': get_config_value(TRAIN_YAML, args.epochs, 3, 'num_epochs'),
+        'learning_rate': get_config_value(TRAIN_YAML, args.lr, 2.0e-5, 'learning_rate'),
+        'weight_decay': get_config_value(TRAIN_YAML, None, 0.05, 'weight_decay'),
+        'warmup_ratio': get_config_value(TRAIN_YAML, None, 0.1, 'warmup_ratio'),
+        'max_grad_norm': get_config_value(TRAIN_YAML, None, 1.0, 'max_grad_norm'),
+        'logging_steps': get_config_value(TRAIN_YAML, None, 10, 'logging_steps'),
+        'eval_steps': get_config_value(TRAIN_YAML, None, 1000, 'eval_steps'),
+        'save_steps': get_config_value(TRAIN_YAML, save_steps_arg, 500, 'save_steps'),
     }
     
-    # LoRA configuration
+    # LoRA configuration - use YAML values when CLI args not provided
     LORA_CONFIG = {
-        'lora_r': 16,
-        'lora_alpha': 32,
-        'lora_dropout': 0.1,
+        'lora_r': get_config_value(LORA_YAML, None, 16, 'r'),
+        'lora_alpha': get_config_value(LORA_YAML, None, 32, 'alpha'),
+        'lora_dropout': get_config_value(LORA_YAML, None, 0.1, 'dropout'),
+        'target_modules': get_config_value(LORA_YAML, None, None, 'target_modules'),
     }
     
-    # Data paths
+    # Data paths - use YAML values when CLI args not provided
     DATA_CONFIG = {
-        'train_path': args.train_data,
-        'val_path': args.val_data,
-        'max_length': MODEL_CONFIG['context_length'],
+        'train_path': get_config_value(DATA_YAML, args.train_data, 'data/factual/factual_train.jsonl', 'train_path'),
+        'val_path': get_config_value(DATA_YAML, args.val_data, 'data/factual/factual_val.jsonl', 'val_path'),
+        'max_length': get_config_value(DATA_YAML, None, MODEL_CONFIG['context_length'], 'max_length'),
     }
     
-    # Checkpoint paths
+    # Checkpoint paths - use YAML values when CLI args not provided
     CHECKPOINT_CONFIG = {
-        'pretrained_model': args.model,
-        'output_dir': args.output_dir,
+        'pretrained_model': get_config_value(CHECKPOINT_YAML, args.model, 'checkpoints/best_model.pt', 'pretrained_model'),
+        'output_dir': get_config_value(CHECKPOINT_YAML, args.output_dir, 'finetuned_model', 'output_dir'),
     }
     
     # ============================================================================
@@ -184,17 +265,31 @@ def main():
     
     device = detect_gpu_device()
     
-    # Adjust settings based on device
+    # Adjust settings based on device (YAML overrides device-specific settings)
+    device_config = DEVICE_YAML.get(device, {}) if DEVICE_YAML else {}
+    
     if device == 'mps':
         print("\n⚙️  Adjusting settings for MPS:")
-        TRAIN_CONFIG['batch_size'] = 4  # Smaller batch for MPS
-        TRAIN_CONFIG['gradient_accumulation_steps'] = 8  # Maintain effective batch
-        use_amp = False  # Disable AMP for MPS stability
+        # Use YAML values if available, otherwise defaults
+        mps_batch_size = get_config_value(device_config, None, 4, 'batch_size')
+        mps_grad_accum = get_config_value(device_config, None, 8, 'gradient_accumulation_steps')
+        mps_use_amp = get_config_value(device_config, None, False, 'use_amp')
+        
+        TRAIN_CONFIG['batch_size'] = mps_batch_size
+        TRAIN_CONFIG['gradient_accumulation_steps'] = mps_grad_accum
+        use_amp = mps_use_amp
         print(f"   Batch size: {TRAIN_CONFIG['batch_size']}")
         print(f"   Gradient accumulation: {TRAIN_CONFIG['gradient_accumulation_steps']}")
         print(f"   Mixed precision: {use_amp}")
     elif device == 'cuda':
-        use_amp = True  # Enable FP16 for CUDA
+        # Use YAML values if available, otherwise defaults
+        cuda_batch_size = get_config_value(device_config, None, 8, 'batch_size')
+        cuda_grad_accum = get_config_value(device_config, None, 4, 'gradient_accumulation_steps')
+        cuda_use_amp = get_config_value(device_config, None, True, 'use_amp')
+        
+        TRAIN_CONFIG['batch_size'] = cuda_batch_size
+        TRAIN_CONFIG['gradient_accumulation_steps'] = cuda_grad_accum
+        use_amp = cuda_use_amp
         print(f"\n⚙️  CUDA settings:")
         print(f"   Mixed precision (FP16): {use_amp}")
         print(f"   Batch size: {TRAIN_CONFIG['batch_size']}")
@@ -375,6 +470,20 @@ def main():
         resume_from = get_remote_checkpoint_path(args.resume_remote, args.model_repo)
         print(f"✅ Downloaded to: {resume_from}")
     
+    # Handle upload settings from YAML
+    logging_config = LOGGING_YAML if LOGGING_YAML else {}
+    upload_to_hub = get_config_value(logging_config, args.upload, False, 'use_wandb')
+    hub_repo_id = get_config_value(logging_config, args.upload_repo, '0x-genesys/neo_weights_checkpoints', 'wandb_project')
+    hub_path_prefix = get_config_value(logging_config, args.upload_path, 'finetune/', 'log_dir')
+    
+    # CLI args override YAML
+    if args.upload is not None:
+        upload_to_hub = args.upload
+    if args.upload_repo is not None:
+        hub_repo_id = args.upload_repo
+    if args.upload_path is not None:
+        hub_path_prefix = args.upload_path
+    
     trainer = LoRAFineTuner(
         model=model,
         tokenizer=tokenizer,
@@ -385,9 +494,9 @@ def main():
         use_amp=use_amp,
         use_multi_gpu=args.multi_gpu,
         resume_from_checkpoint=resume_from,
-        upload_to_hub=args.upload,
-        hub_repo_id=args.upload_repo,
-        hub_path_prefix=args.upload_path,
+        upload_to_hub=upload_to_hub,
+        hub_repo_id=hub_repo_id,
+        hub_path_prefix=hub_path_prefix,
         **TRAIN_CONFIG,
         **LORA_CONFIG,
     )
