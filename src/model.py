@@ -402,7 +402,7 @@ class DecoderOnlyTransformer(nn.Module):
             # we use tensor math to map any -1 padding values to -100.
             # This compiles flawlessly on XLA without triggering a graph break.
             shift_targets = torch.where(
-                shift_targets == -1 | (shift_targets == pad_token_id), 
+                (shift_targets == -1) | (shift_targets == pad_token_id), 
                 torch.tensor(-100, dtype=shift_targets.dtype, device=shift_targets.device), 
                 shift_targets
             )

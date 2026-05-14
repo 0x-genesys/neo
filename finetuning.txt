@@ -1,0 +1,3807 @@
+
+================================================================================
+🚀 GPU Fine-Tuning for Transformer with LoRA + CoT
+================================================================================
+
+✅ Loaded config from: config/finetuning_config_200m.yaml
+
+📊 Model Configuration:
+   Vocabulary: 100,277
+   Dimensions: 1024
+   Heads: 16
+   Layers: 14
+   Context: 512
+   Dropout: 0.12
+✅ Apple MPS Detected
+   Device: Apple Silicon GPU
+
+⚙️  Adjusting settings for MPS:
+   Batch size: 4
+   Gradient accumulation: 8
+   Mixed precision: False
+
+================================================================================
+📚 Loading Tokenizer
+================================================================================
+✅ Tokenizer loaded with 7 custom special tokens.
+✅ Chat tokens registered: <|im_start|> (ID: 100264), <|im_end|> (ID: 100265)
+✅ Tokenizer prepared:
+   Added 0 special tokens (already in tiktoken vocab)
+   Vocabulary size: 100277
+   PAD token: <|endoftext|> (ID: 100257)
+   EOS token: <|endoftext|> (ID: 100257)
+   Special tokens: <|im_start|>, <|im_end|>
+
+🔍 Verifying Special Token Encoding...
+   <|im_start|> encoded as: [100264] (1 token)
+   <|im_end|> encoded as: [100265] (1 token)
+✅ Special tokens verified as single tokens
+   <|im_start|> = token ID 100264
+   <|im_end|> = token ID 100265
+
+📊 Vocabulary Size Check:
+   Tokenizer vocab size: 100277
+   Model config vocab size: 100277
+✅ Vocab sizes match!
+
+================================================================================
+🔧 Loading Pre-trained Model
+================================================================================
+Model initialized with 256.98M parameters
+✅ SwiGLU MLP enabled
+✅ RoPE positional embeddings enabled
+✅ GQA enabled (16 query heads, 4 KV heads)
+✅ Flash attention enabled via PyTorch SDPA
+
+📥 Loading model from HuggingFace Hub...
+   Repository: 0x-genesys/neo_weights_200m
+   File: checkpoint_step_15000.pt
+📥 Downloading checkpoint from HuggingFace Hub...
+   Repository: 0x-genesys/neo_weights_200m
+   File: checkpoint_step_15000.pt
+✅ Downloaded to: /Users/karanahuja/.cache/huggingface/hub/models--0x-genesys--neo_weights_200m/snapshots/0eab3f05342698350622c168f36ac5bac218ca7d/checkpoint_step_15000.pt
+Loading checkpoint from: /Users/karanahuja/.cache/huggingface/hub/models--0x-genesys--neo_weights_200m/snapshots/0eab3f05342698350622c168f36ac5bac218ca7d/checkpoint_step_15000.pt
+✅ Loaded pre-trained weights (loss: 2.470546875)
+
+📊 Checkpoint vocab size: 100277
+   Model config vocab size: 100277
+   Tokenizer vocab size: 100277
+✅ Model weights loaded successfully
+
+================================================================================
+📊 Loading Training Data
+================================================================================
+✅ Loaded 3600 examples from data/factual/factual_train.jsonl
+✅ Loaded 400 examples from data/factual/factual_val.jsonl
+
+📊 Training Schedule:
+   Steps per epoch: 112
+   Evaluate every: 112 steps
+   Save checkpoint every: 500 steps
+
+================================================================================
+🎯 Initializing LoRA Fine-Tuner
+================================================================================
+
+================================================================================
+🔧 Applying LoRA Configuration
+================================================================================
+Target modules loaded from config: ['c_attn', 'c_proj', 'gate_proj', 'up_proj', 'down_proj']
+
+✅ LoRA Applied Successfully
+   Rank (r): 16
+   Alpha (α): 32
+   Dropout: 0.1
+   Target modules: ['c_attn', 'c_proj', 'gate_proj', 'up_proj', 'down_proj']
+
+📊 Parameter Statistics:
+   Total parameters: 260,536,536
+   Trainable parameters: 3,554,880
+   Trainable %: 1.36%
+================================================================================
+
+🔒 Freezing embedding layers...
+   Frozen: base_model.model.token_embedding.weight (102,683,648 parameters)
+✅ Frozen 102,683,648 embedding parameters
+
+📅 Scheduler Configuration:
+   Total training steps: 112
+   Warmup steps: 11 (10%)
+   Learning rate: 1.50e-05 (fixed)
+
+
+================================================================================
+🚀 Fine-Tuning Configuration
+================================================================================
+Device: mps
+Mixed Precision (FP16): False
+
+📦 Data:
+   Training samples: 3,600
+   Validation samples: 400
+
+🎯 Training:
+   Epochs: 1
+   Batch size: 4
+   Gradient accumulation: 8
+   Effective batch size: 32
+   Learning rate: 1.50e-05
+   Weight decay: 0.05
+   Max gradient norm: 1.0
+
+💾 Checkpointing:
+   Output directory: finetuned_model
+   Save every: 500 steps
+   Evaluate every: 112 steps
+   Log every: 10 steps
+================================================================================
+
+
+================================================================================
+🎓 Starting Fine-Tuning
+================================================================================
+
+🔍 Sanity Check: Evaluating initial loss...
+
+============================================================
+📊 DEBUG: EVALUATION Batch 0
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels non-masked count: 33
+
+   [Could not decode input text]
+============================================================
+
+🔍 EVALUATION Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss mean value: 11.606859
+   Logits min/max: -8.5133 / 17.8733
+============================================================
+   Initial validation loss: 9.1428
+
+⚠️  WARNING: Initial loss is very high (9.1428)!
+   Expected: ~2-3 (close to pre-trained model)
+   Actual: 9.1428
+
+   Possible causes:
+   1. LoRA not initialized correctly (B matrix should be zero)
+   2. Label/input misalignment
+   3. Token ID overflow
+
+   Continuing anyway, but results may be poor...
+
+================================================================================
+Epoch 1/1
+================================================================================
+
+============================================================
+📊 DEBUG: Step 0 (Batch 0)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 38
+   Labels masked count: 2010
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 30132, 94855, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 First Batch Validation:
+   Model vocab size: 100277
+   Max input_id: 100265
+   Max label_id: 100265
+   Model lm_head output size: 100277
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 10.410719
+   Loss min/max: 10.410719 / 10.410719
+   Logits min/max: -8.7786 / 17.8780
+   Logits mean/std: -1.7391 / 2.6384
+
+   Predicted tokens (first 20):
+      [1174, 220, 20, 5296, 539, 2478, 5507, 719, 5507, 323, 11782, 3446, 4221, 311, 2435, 499, 2883, 374, 264, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 30132, 94855, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 0 (Batch 1)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 38
+   Labels masked count: 2010
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 12821, 2629, 292, 2849, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 11.137075
+   Loss min/max: 11.137075 / 11.137075
+   Logits min/max: -8.9371 / 18.5926
+   Logits mean/std: -1.7203 / 2.6266
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 11, 264, 2294, 5507, 15062, 11, 323, 1217, 5507, 4221, 13, 2435, 499, 1217, 374, 311, 3488]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 12821, 2629, 292, 2849, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 0 (Batch 2)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 35
+   Labels masked count: 2013
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 19388, 788, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 11.247355
+   Loss min/max: 11.247355 / 11.247355
+   Logits min/max: -8.9968 / 17.6151
+   Logits mean/std: -1.7264 / 2.6336
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 527, 3411, 2478, 5507, 15062, 11, 323, 1217, 292, 4221, 430, 2435, 499, 502, 374, 4860, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 19388, 788, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 0 (Batch 3)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 29
+   Labels masked count: 2019
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 17947, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 11.097006
+   Loss min/max: 11.097006 / 11.097006
+   Logits min/max: -8.8879 / 18.6465
+   Logits mean/std: -1.7606 / 2.6442
+
+   Predicted tokens (first 20):
+      [1174, 220, 12, 527, 264, 2478, 2592, 719, 11, 323, 1664, 1732, 4221, 13, 2435, 499, 1217, 374, 264, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 17947, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 0 (Batch 4)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 35
+   Labels masked count: 2013
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 11710, 1195, 3090, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 10.943107
+   Loss min/max: 10.943107 / 10.943107
+   Logits min/max: -8.7514 / 18.8639
+   Logits mean/std: -1.7256 / 2.6238
+
+   Predicted tokens (first 20):
+      [1174, 1174, 17, 527, 264, 2478, 5211, 15062, 323, 323, 11782, 2128, 4221, 889, 1502, 1701, 50048, 596, 4860, 3488]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 11710, 1195, 3090, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 0 (Batch 5)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 32
+   Labels masked count: 2016
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 76, 39100, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 11.502481
+   Loss min/max: 11.502481 / 11.502481
+   Logits min/max: -8.7831 / 17.6289
+   Logits mean/std: -1.7172 / 2.6164
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 11, 264, 2478, 2592, 4228, 11, 323, 11782, 1648, 430, 430, 2435, 499, 5780, 374, 264, 3488]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 76, 39100, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 0 (Batch 6)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 34
+   Labels masked count: 2014
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 75282, 323, 13225, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 10.821594
+   Loss min/max: 10.821594 / 10.821594
+   Logits min/max: -8.7945 / 17.9190
+   Logits mean/std: -1.7143 / 2.6199
+
+   Predicted tokens (first 20):
+      [662, 220, 17, 527, 1063, 2478, 1160, 15062, 5507, 323, 39319, 261, 5507, 13, 1502, 499, 5780, 374, 499, 2763]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 75282, 323, 13225, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 0 (Batch 7)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [0, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 136
+   Labels masked count: 1912
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 10872, 575, 7709, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.809776
+   Loss min/max: 6.809776 / 6.809776
+   Logits min/max: -8.7782 / 19.1858
+   Logits mean/std: -1.6681 / 2.5834
+
+   Predicted tokens (first 20):
+      [662, 220, 18, 220, 3411, 2294, 5507, 719, 11, 323, 42779, 5873, 4221, 13, 1102, 499, 1217, 374, 264, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 10872, 575, 7709, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 10 (Batch 80)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 243
+   Labels masked count: 1805
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 61665, 198, 37, 87595, 389, 279, 8712, 315, 25, 1148, 374, 26487, 5446, 1131, 100265, 198, 100264]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.474568
+   Loss min/max: 6.474568 / 6.474568
+   Logits min/max: -8.8325 / 19.1080
+   Logits mean/std: -1.5596 / 2.5481
+
+   Predicted tokens (first 20):
+      [1174, 1174, 20, 11, 279, 2478, 5507, 15062, 11, 323, 11782, 1648, 3072, 430, 2435, 264, 2763, 11, 4860, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 61665, 198, 37, 87595, 389, 279, 8712]
+============================================================
+
+============================================================
+📊 DEBUG: Step 10 (Batch 81)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 32
+   Labels masked count: 2016
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 50828, 16003, 5315, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 11.018133
+   Loss min/max: 11.018133 / 11.018133
+   Logits min/max: -8.8331 / 17.8852
+   Logits mean/std: -1.7204 / 2.6217
+
+   Predicted tokens (first 20):
+      [1174, 1174, 17, 13, 3967, 2294, 5507, 4228, 5507, 323, 11782, 5452, 4221, 430, 2435, 499, 6500, 374, 264, 3488]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 50828, 16003, 5315, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 10 (Batch 82)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 49
+   Labels masked count: 1999
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 61665, 198, 83896, 279, 3488, 389, 25, 3234, 19987, 617, 11888, 6439, 30, 1131, 100265, 198, 100264]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 9.776549
+   Loss min/max: 9.776549 / 9.776549
+   Logits min/max: -9.0471 / 19.0586
+   Logits mean/std: -1.6986 / 2.6178
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 512, 264, 5526, 5507, 4228, 5507, 323, 23387, 7075, 4221, 369, 1472, 1701, 1217, 374, 311, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 61665, 198, 83896, 279, 3488, 389, 25]
+============================================================
+
+============================================================
+📊 DEBUG: Step 10 (Batch 83)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 31
+   Labels masked count: 2017
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 41565, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 10.804445
+   Loss min/max: 10.804445 / 10.804445
+   Logits min/max: -8.8092 / 19.7283
+   Logits mean/std: -1.7221 / 2.6316
+
+   Predicted tokens (first 20):
+      [1174, 220, 20, 11, 1063, 2478, 5507, 323, 11, 323, 11782, 5411, 4221, 13, 1502, 499, 50048, 596, 264, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 41565, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 10 (Batch 84)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 400
+   Labels masked count: 1648
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 61665, 198, 67794, 5859, 279, 8712, 315, 25, 2650, 656, 499, 4394, 56249, 30, 1131, 100265, 198]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.479955
+   Loss min/max: 6.479955 / 6.479955
+   Logits min/max: -8.9914 / 20.5232
+   Logits mean/std: -1.4995 / 2.4972
+
+   Predicted tokens (first 20):
+      [1174, 220, 18, 11, 264, 2294, 5507, 15062, 5507, 323, 11782, 2447, 4221, 13, 1102, 499, 502, 374, 264, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 61665, 198, 67794, 5859, 279, 8712, 315]
+============================================================
+
+============================================================
+📊 DEBUG: Step 10 (Batch 85)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 32
+   Labels masked count: 2016
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 90331, 6492, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 11.032301
+   Loss min/max: 11.032301 / 11.032301
+   Logits min/max: -8.9779 / 17.8190
+   Logits mean/std: -1.7158 / 2.6153
+
+   Predicted tokens (first 20):
+      [1174, 1174, 17, 512, 3967, 2478, 2592, 15062, 11, 323, 15325, 1847, 5507, 430, 2435, 499, 1217, 374, 499, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 90331, 6492, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 10 (Batch 86)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 152
+   Labels masked count: 1896
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 18668, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.080709
+   Loss min/max: 6.080709 / 6.080709
+   Logits min/max: -8.7218 / 17.9288
+   Logits mean/std: -1.5804 / 2.5285
+
+   Predicted tokens (first 20):
+      [1174, 220, 19, 649, 3411, 5526, 5507, 15062, 11, 323, 1217, 2128, 4221, 430, 2435, 499, 4382, 596, 264, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 18668, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 10 (Batch 87)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 34
+   Labels masked count: 2014
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 45168, 26252, 788, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 10.901938
+   Loss min/max: 10.901938 / 10.901938
+   Logits min/max: -8.8807 / 17.5491
+   Logits mean/std: -1.7247 / 2.6251
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 374, 279, 2478, 5507, 15062, 5507, 323, 15062, 261, 4221, 13, 2435, 499, 1217, 374, 311, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 45168, 26252, 788, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 20 (Batch 160)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [1, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 89
+   Labels masked count: 1959
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 61665, 198, 74407, 20994, 279, 3319, 9002, 25, 21335, 757, 264, 2316, 315, 832, 315, 279, 330]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.236860
+   Loss min/max: 7.236860 / 7.236860
+   Logits min/max: -8.8695 / 17.9454
+   Logits mean/std: -1.6190 / 2.5669
+
+   Predicted tokens (first 20):
+      [220, 220, 12, 198, 264, 5526, 5211, 4228, 11, 323, 1217, 5452, 5507, 430, 2435, 499, 50048, 374, 311, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 61665, 198, 74407, 20994, 279, 3319, 9002]
+============================================================
+
+============================================================
+📊 DEBUG: Step 20 (Batch 161)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 84
+   Labels masked count: 1964
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 61665, 198, 36919, 287, 2038, 922, 25, 2650, 656, 358, 30536, 856, 58125, 15652, 304, 27565, 369]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.065401
+   Loss min/max: 7.065401 / 7.065401
+   Logits min/max: -8.8525 / 17.6166
+   Logits mean/std: -1.5910 / 2.5458
+
+   Predicted tokens (first 20):
+      [1174, 1174, 17, 512, 264, 2478, 2592, 15062, 11, 323, 4228, 5507, 430, 430, 2435, 499, 1217, 374, 499, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 61665, 198, 36919, 287, 2038, 922, 25]
+============================================================
+
+============================================================
+📊 DEBUG: Step 20 (Batch 162)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 31
+   Labels masked count: 2017
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 4749, 2249, 635, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 9.969604
+   Loss min/max: 9.969604 / 9.969604
+   Logits min/max: -8.8352 / 17.7839
+   Logits mean/std: -1.7185 / 2.6263
+
+   Predicted tokens (first 20):
+      [662, 220, 17, 374, 3967, 2294, 5507, 15062, 5507, 323, 11782, 261, 4221, 13, 2435, 499, 5780, 374, 323, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 4749, 2249, 635, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 20 (Batch 163)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 33
+   Labels masked count: 2015
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 74865, 704, 5865, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 10.494570
+   Loss min/max: 10.494570 / 10.494570
+   Logits min/max: -8.8246 / 17.8224
+   Logits mean/std: -1.6922 / 2.6139
+
+   Predicted tokens (first 20):
+      [571, 1174, 17, 11, 264, 2294, 5211, 323, 11, 323, 11782, 3446, 3217, 13, 1502, 499, 502, 374, 499, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 74865, 704, 5865, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 20 (Batch 164)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 57
+   Labels masked count: 1991
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 782, 35511, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.915869
+   Loss min/max: 8.915869 / 8.915869
+   Logits min/max: -8.9139 / 17.3169
+   Logits mean/std: -1.6875 / 2.6034
+
+   Predicted tokens (first 20):
+      [4435, 220, 17, 512, 264, 2478, 5507, 15062, 11, 323, 11782, 380, 4221, 13, 2435, 499, 1217, 374, 264, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 782, 35511, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 20 (Batch 165)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 33
+   Labels masked count: 2015
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 89, 9186, 10934, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 10.428762
+   Loss min/max: 10.428762 / 10.428762
+   Logits min/max: -8.9704 / 17.3243
+   Logits mean/std: -1.7208 / 2.6283
+
+   Predicted tokens (first 20):
+      [551, 220, 19, 11, 3967, 2478, 5507, 2536, 11, 323, 11782, 2027, 430, 430, 2435, 499, 502, 374, 264, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 89, 9186, 10934, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 20 (Batch 166)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 446
+   Labels masked count: 1602
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 61665, 198, 4383, 287, 279, 8712, 315, 25, 10699, 374, 279, 1888, 3026, 596, 1296, 37099, 2851]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.105796
+   Loss min/max: 5.105796 / 5.105796
+   Logits min/max: -8.7889 / 18.2801
+   Logits mean/std: -1.6461 / 2.5582
+
+   Predicted tokens (first 20):
+      [1174, 220, 388, 527, 3411, 5526, 5507, 15062, 5507, 323, 11782, 5452, 5452, 430, 358, 499, 502, 374, 499, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 61665, 198, 4383, 287, 279, 8712, 315]
+============================================================
+
+============================================================
+📊 DEBUG: Step 20 (Batch 167)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 32
+   Labels masked count: 2016
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 28956, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 10.246227
+   Loss min/max: 10.246227 / 10.246227
+   Logits min/max: -8.8231 / 17.4360
+   Logits mean/std: -1.6980 / 2.6188
+
+   Predicted tokens (first 20):
+      [323, 220, 17, 11, 3411, 2478, 5507, 719, 11, 323, 11782, 292, 4221, 369, 1502, 499, 1217, 374, 264, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 28956, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 30 (Batch 240)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 94
+   Labels masked count: 1954
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 8629, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.645201
+   Loss min/max: 6.645201 / 6.645201
+   Logits min/max: -8.7106 / 19.3142
+   Logits mean/std: -1.5960 / 2.5540
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 11, 1701, 2478, 5507, 15062, 11, 323, 7524, 4623, 430, 430, 1502, 499, 1217, 374, 499, 2763]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 8629, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 30 (Batch 241)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 83
+   Labels masked count: 1965
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 61665, 198, 16939, 85040, 13363, 922, 25, 8595, 527, 584, 1093, 62283, 82, 30, 1131, 100265, 198]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.782920
+   Loss min/max: 7.782920 / 7.782920
+   Logits min/max: -8.8607 / 18.3110
+   Logits mean/std: -1.6496 / 2.5795
+
+   Predicted tokens (first 20):
+      [1174, 1174, 17, 512, 264, 2294, 5507, 4228, 5507, 323, 7524, 5507, 4221, 13, 2435, 499, 1217, 374, 264, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 61665, 198, 16939, 85040, 13363, 922, 25]
+============================================================
+
+============================================================
+📊 DEBUG: Step 30 (Batch 242)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 112
+   Labels masked count: 1936
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 6756, 1396, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.900986
+   Loss min/max: 5.900986 / 5.900986
+   Logits min/max: -8.8008 / 18.3972
+   Logits mean/std: -1.6050 / 2.5531
+
+   Predicted tokens (first 20):
+      [1174, 1174, 1174, 13, 264, 2478, 5507, 15062, 11, 323, 11782, 1648, 4221, 430, 220, 499, 5780, 374, 499, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 6756, 1396, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 30 (Batch 243)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 36
+   Labels masked count: 2012
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 3479, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 9.356918
+   Loss min/max: 9.356918 / 9.356918
+   Logits min/max: -8.7920 / 17.6662
+   Logits mean/std: -1.6945 / 2.6138
+
+   Predicted tokens (first 20):
+      [1174, 220, 12, 11, 264, 2478, 1648, 2536, 323, 323, 1217, 3446, 5507, 369, 220, 499, 502, 374, 264, 3488]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 3479, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 30 (Batch 244)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 31
+   Labels masked count: 2017
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 1752, 16917, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 9.555787
+   Loss min/max: 9.555787 / 9.555787
+   Logits min/max: -8.8335 / 17.7834
+   Logits mean/std: -1.6757 / 2.6037
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 374, 3411, 2294, 5507, 15062, 11, 323, 1217, 380, 4221, 13, 1502, 499, 502, 374, 311, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 1752, 16917, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 30 (Batch 245)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 297
+   Labels masked count: 1751
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 36888, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.727722
+   Loss min/max: 5.727722 / 5.727722
+   Logits min/max: -8.9765 / 18.4785
+   Logits mean/std: -1.4840 / 2.4701
+
+   Predicted tokens (first 20):
+      [1174, 220, 19, 617, 264, 2478, 5507, 15062, 11, 323, 11782, 5452, 4221, 13, 2435, 499, 5780, 374, 264, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 36888, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 30 (Batch 246)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 37
+   Labels masked count: 2011
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 782, 668, 1354, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 9.548779
+   Loss min/max: 9.548779 / 9.548779
+   Logits min/max: -8.7510 / 17.2499
+   Logits mean/std: -1.6774 / 2.6028
+
+   Predicted tokens (first 20):
+      [1174, 571, 17, 512, 279, 2294, 2592, 4228, 11, 323, 11782, 1648, 4221, 430, 1502, 499, 50048, 596, 499, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 782, 668, 1354, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 30 (Batch 247)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 31
+   Labels masked count: 2017
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 7197, 15111, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 9.819215
+   Loss min/max: 9.819215 / 9.819215
+   Logits min/max: -8.7636 / 17.8082
+   Logits mean/std: -1.6472 / 2.5854
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 374, 264, 2294, 5507, 4228, 11, 323, 11782, 10255, 4221, 13, 2435, 499, 502, 11, 279, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 7197, 15111, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 40 (Batch 320)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 36
+   Labels masked count: 2012
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 13798, 16597, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.823772
+   Loss min/max: 8.823772 / 8.823772
+   Logits min/max: -8.7259 / 17.6782
+   Logits mean/std: -1.6513 / 2.5933
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 649, 3411, 2478, 5507, 15062, 11, 323, 1217, 4221, 4221, 311, 1502, 499, 1217, 374, 264, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 13798, 16597, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 40 (Batch 321)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 227
+   Labels masked count: 1821
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 75, 2094, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.911656
+   Loss min/max: 5.911656 / 5.911656
+   Logits min/max: -8.7417 / 19.1817
+   Logits mean/std: -1.4573 / 2.4577
+
+   Predicted tokens (first 20):
+      [1174, 1174, 19, 527, 1120, 2478, 5507, 719, 323, 323, 11782, 261, 4221, 13, 1502, 499, 502, 374, 499, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 75, 2094, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 40 (Batch 322)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 264
+   Labels masked count: 1784
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 754, 8138, 1486, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.326122
+   Loss min/max: 5.326122 / 5.326122
+   Logits min/max: -9.0219 / 21.2853
+   Logits mean/std: -1.4622 / 2.4674
+
+   Predicted tokens (first 20):
+      [323, 1174, 19, 11, 1063, 2478, 5507, 15062, 11, 323, 4228, 535, 5507, 430, 1502, 499, 502, 374, 311, 2763]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 754, 8138, 1486, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 40 (Batch 323)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 31
+   Labels masked count: 2017
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 4238, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.671464
+   Loss min/max: 8.671464 / 8.671464
+   Logits min/max: -8.6751 / 17.3934
+   Logits mean/std: -1.6903 / 2.6077
+
+   Predicted tokens (first 20):
+      [1174, 1174, 17, 649, 1063, 2478, 5507, 4228, 5507, 323, 11782, 1847, 4221, 13, 2435, 499, 1217, 374, 499, 3488]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 4238, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 40 (Batch 324)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 40
+   Labels masked count: 2008
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 278, 588, 14559, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.680193
+   Loss min/max: 8.680193 / 8.680193
+   Logits min/max: -8.8803 / 17.9083
+   Logits mean/std: -1.6622 / 2.5997
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 527, 3967, 2294, 2592, 15062, 11, 323, 7524, 261, 13, 13, 2435, 499, 1847, 374, 499, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 278, 588, 14559, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 40 (Batch 325)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 36
+   Labels masked count: 2012
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 67229, 7063, 47620, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 9.707598
+   Loss min/max: 9.707598 / 9.707598
+   Logits min/max: -8.7287 / 17.3348
+   Logits mean/std: -1.6592 / 2.5857
+
+   Predicted tokens (first 20):
+      [323, 220, 16, 13, 264, 2478, 5507, 4228, 11, 323, 4228, 8641, 5507, 13, 1502, 499, 1217, 374, 499, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 67229, 7063, 47620, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 40 (Batch 326)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 79
+   Labels masked count: 1969
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 4014, 323, 13654, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.153237
+   Loss min/max: 7.153237 / 7.153237
+   Logits min/max: -8.7225 / 17.4309
+   Logits mean/std: -1.5978 / 2.5550
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 17, 1063, 2478, 5507, 15062, 11, 323, 4228, 261, 4221, 430, 220, 499, 1217, 374, 264, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 4014, 323, 13654, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 40 (Batch 327)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 192
+   Labels masked count: 1856
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 61665, 198, 83896, 279, 3488, 389, 25, 16299, 24113, 24577, 6476, 49329, 689, 1952, 266, 4880, 304]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.301735
+   Loss min/max: 6.301735 / 6.301735
+   Logits min/max: -8.8003 / 17.4845
+   Logits mean/std: -1.4911 / 2.5003
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 512, 264, 2478, 5507, 4228, 5507, 323, 15062, 261, 5507, 13, 1502, 499, 502, 374, 499, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 61665, 198, 83896, 279, 3488, 389, 25]
+============================================================
+
+============================================================
+📊 DEBUG: Step 50 (Batch 400)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 33
+   Labels masked count: 2015
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 31729, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.490047
+   Loss min/max: 8.490047 / 8.490047
+   Logits min/max: -8.9163 / 17.5421
+   Logits mean/std: -1.6317 / 2.5783
+
+   Predicted tokens (first 20):
+      [1174, 1174, 17, 11, 279, 2478, 5507, 15062, 11, 323, 15062, 3217, 4221, 13, 2435, 499, 502, 374, 499, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 31729, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 50 (Batch 401)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 36
+   Labels masked count: 2012
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 1354, 24292, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.531848
+   Loss min/max: 8.531848 / 8.531848
+   Logits min/max: -8.7229 / 17.3061
+   Logits mean/std: -1.6521 / 2.5887
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 13, 279, 2478, 2592, 15062, 11, 323, 7524, 5452, 4221, 13, 2435, 30829, 502, 374, 279, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 1354, 24292, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 50 (Batch 402)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 172
+   Labels masked count: 1876
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 28641, 67818, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.252742
+   Loss min/max: 6.252742 / 6.252742
+   Logits min/max: -8.7120 / 18.2747
+   Logits mean/std: -1.5153 / 2.4983
+
+   Predicted tokens (first 20):
+      [220, 1174, 17, 11, 279, 2478, 5507, 4228, 11, 323, 1217, 4623, 4221, 13, 1502, 499, 5780, 374, 701, 3488]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 28641, 67818, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 50 (Batch 403)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 359
+   Labels masked count: 1689
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 59888, 36807, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 4.909065
+   Loss min/max: 4.909065 / 4.909065
+   Logits min/max: -8.7042 / 19.4065
+   Logits mean/std: -1.5521 / 2.5168
+
+   Predicted tokens (first 20):
+      [662, 220, 18, 11, 264, 2478, 1648, 15062, 11, 323, 39319, 1648, 4221, 13, 2435, 499, 50048, 374, 264, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 59888, 36807, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 50 (Batch 404)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 31
+   Labels masked count: 2017
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 80660, 50791, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.599685
+   Loss min/max: 8.599685 / 8.599685
+   Logits min/max: -9.0229 / 17.6191
+   Logits mean/std: -1.6175 / 2.5664
+
+   Predicted tokens (first 20):
+      [323, 1174, 17, 617, 264, 2478, 5507, 15062, 11, 323, 11782, 261, 13, 13, 358, 499, 5780, 374, 499, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 80660, 50791, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 50 (Batch 405)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 81
+   Labels masked count: 1967
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 98584, 3233, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.139585
+   Loss min/max: 7.139585 / 7.139585
+   Logits min/max: -8.8695 / 17.2393
+   Logits mean/std: -1.5895 / 2.5534
+
+   Predicted tokens (first 20):
+      [1174, 220, 20, 649, 539, 2478, 5507, 15062, 323, 323, 11782, 7075, 4221, 13, 2435, 499, 502, 16581, 499, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 98584, 3233, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 50 (Batch 406)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 31
+   Labels masked count: 2017
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 6518, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.564681
+   Loss min/max: 8.564681 / 8.564681
+   Logits min/max: -8.8137 / 17.3899
+   Logits mean/std: -1.6393 / 2.5834
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 8, 279, 5526, 2592, 4228, 11, 323, 22556, 1648, 4221, 13, 220, 499, 502, 374, 264, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 6518, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 50 (Batch 407)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 31
+   Labels masked count: 2017
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 35187, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.723774
+   Loss min/max: 8.723774 / 8.723774
+   Logits min/max: -8.9282 / 17.2253
+   Logits mean/std: -1.6320 / 2.5700
+
+   Predicted tokens (first 20):
+      [1174, 220, 19, 649, 3967, 2478, 5507, 15062, 11, 323, 11782, 5452, 430, 13, 2435, 499, 50048, 11, 499, 2763]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 35187, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 60 (Batch 480)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 32
+   Labels masked count: 2016
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 43326, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.993959
+   Loss min/max: 7.993959 / 7.993959
+   Logits min/max: -8.8072 / 17.5854
+   Logits mean/std: -1.6113 / 2.5631
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 13, 264, 2478, 5507, 15062, 5507, 323, 15325, 5411, 5507, 13, 220, 499, 502, 374, 264, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 43326, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 60 (Batch 481)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 28
+   Labels masked count: 2020
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 451, 20542, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.123113
+   Loss min/max: 8.123113 / 8.123113
+   Logits min/max: -8.7568 / 18.6544
+   Logits mean/std: -1.5988 / 2.5619
+
+   Predicted tokens (first 20):
+      [1174, 662, 17, 512, 264, 2478, 5507, 15062, 11, 323, 4228, 5873, 917, 369, 2435, 499, 5780, 374, 499, 3738]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 451, 20542, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 60 (Batch 482)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 32
+   Labels masked count: 2016
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 94146, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.574763
+   Loss min/max: 8.574763 / 8.574763
+   Logits min/max: -8.6800 / 17.4742
+   Logits mean/std: -1.6403 / 2.5892
+
+   Predicted tokens (first 20):
+      [1174, 220, 19, 527, 3411, 2478, 5507, 15062, 5507, 323, 1217, 380, 430, 13, 1502, 499, 502, 374, 11, 3488]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 94146, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 60 (Batch 483)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 33
+   Labels masked count: 2015
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 451, 884, 981, 388, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.345662
+   Loss min/max: 8.345662 / 8.345662
+   Logits min/max: -8.7489 / 16.8295
+   Logits mean/std: -1.6189 / 2.5766
+
+   Predicted tokens (first 20):
+      [323, 662, 19, 198, 7718, 955, 5507, 2536, 5507, 323, 23387, 1847, 430, 430, 2435, 499, 5780, 374, 499, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 451, 884, 981, 388, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 60 (Batch 484)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 34
+   Labels masked count: 2014
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 290, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.346955
+   Loss min/max: 8.346955 / 8.346955
+   Logits min/max: -8.8352 / 17.4310
+   Logits mean/std: -1.6223 / 2.5707
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 11, 264, 5526, 2592, 4228, 5507, 323, 11782, 535, 4221, 430, 2435, 499, 50048, 11, 311, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 290, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 60 (Batch 485)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 212
+   Labels masked count: 1836
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 61665, 198, 37, 87595, 389, 279, 8712, 315, 25, 3639, 374, 21424, 30, 1131, 100265, 198, 100264]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.425837
+   Loss min/max: 5.425837 / 5.425837
+   Logits min/max: -8.6766 / 17.3968
+   Logits mean/std: -1.4264 / 2.4336
+
+   Predicted tokens (first 20):
+      [1174, 220, 19, 512, 539, 2478, 5507, 15062, 11, 323, 4228, 5507, 5507, 430, 1502, 499, 5780, 374, 264, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 61665, 198, 37, 87595, 389, 279, 8712]
+============================================================
+
+============================================================
+📊 DEBUG: Step 60 (Batch 486)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 98
+   Labels masked count: 1950
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 1336, 3267, 88124, 82, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.044461
+   Loss min/max: 6.044461 / 6.044461
+   Logits min/max: -8.8920 / 19.5441
+   Logits mean/std: -1.5616 / 2.5290
+
+   Predicted tokens (first 20):
+      [1109, 82, 17, 617, 279, 2478, 5507, 4228, 11, 323, 7524, 5507, 430, 13, 2435, 1701, 50048, 11, 311, 3738]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 1336, 3267, 88124, 82, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 60 (Batch 487)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [1, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 276
+   Labels masked count: 1772
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 86, 35961, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.373316
+   Loss min/max: 5.373316 / 5.373316
+   Logits min/max: -8.9331 / 19.0806
+   Logits mean/std: -1.3690 / 2.3884
+
+   Predicted tokens (first 20):
+      [1174, 1174, 17, 512, 264, 2478, 2592, 3428, 5507, 323, 11782, 1648, 4221, 13, 1502, 499, 50048, 374, 499, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 86, 35961, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 70 (Batch 560)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 31
+   Labels masked count: 2017
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 5192, 92475, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.081205
+   Loss min/max: 8.081205 / 8.081205
+   Logits min/max: -8.7070 / 17.0742
+   Logits mean/std: -1.6132 / 2.5578
+
+   Predicted tokens (first 20):
+      [1174, 220, 16, 198, 264, 5526, 2592, 15062, 5507, 323, 1217, 261, 41503, 13, 2435, 27397, 50048, 374, 311, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 5192, 92475, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 70 (Batch 561)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 34
+   Labels masked count: 2014
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 752, 307, 307, 79809, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.010901
+   Loss min/max: 8.010901 / 8.010901
+   Logits min/max: -8.7671 / 17.8191
+   Logits mean/std: -1.6114 / 2.5624
+
+   Predicted tokens (first 20):
+      [4435, 1174, 19, 18, 3967, 2478, 5507, 15062, 11, 323, 42779, 3756, 430, 13, 1502, 499, 502, 374, 369, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 752, 307, 307, 79809, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 70 (Batch 562)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 28
+   Labels masked count: 2020
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 20559, 323, 990, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.730969
+   Loss min/max: 7.730969 / 7.730969
+   Logits min/max: -8.7927 / 17.8958
+   Logits mean/std: -1.5578 / 2.5373
+
+   Predicted tokens (first 20):
+      [1174, 220, 18, 374, 1120, 2478, 5507, 4228, 11, 323, 4228, 1648, 5507, 13, 1502, 499, 2883, 374, 311, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 20559, 323, 990, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 70 (Batch 563)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 367
+   Labels masked count: 1681
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 50828, 9434, 30535, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.262599
+   Loss min/max: 5.262599 / 5.262599
+   Logits min/max: -8.7026 / 18.7381
+   Logits mean/std: -1.3688 / 2.4160
+
+   Predicted tokens (first 20):
+      [323, 220, 18, 649, 264, 2478, 5507, 4228, 11, 323, 11782, 4221, 4221, 13, 1502, 499, 502, 374, 1124, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 50828, 9434, 30535, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 70 (Batch 564)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 70
+   Labels masked count: 1978
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 8846, 261, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.762090
+   Loss min/max: 6.762090 / 6.762090
+   Logits min/max: -8.7542 / 17.3998
+   Logits mean/std: -1.5437 / 2.5176
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 198, 279, 2478, 1160, 15062, 5507, 323, 11782, 11, 4221, 13, 2435, 499, 1217, 374, 499, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 8846, 261, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 70 (Batch 565)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [1, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 219
+   Labels masked count: 1829
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 30838, 5540, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 4.964115
+   Loss min/max: 4.964115 / 4.964115
+   Logits min/max: -8.6377 / 19.4912
+   Logits mean/std: -1.4628 / 2.4782
+
+   Predicted tokens (first 20):
+      [1174, 220, 18, 617, 1701, 2478, 5873, 15062, 11, 323, 33045, 6883, 4221, 13, 1502, 499, 1217, 374, 499, 3488]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 30838, 5540, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 70 (Batch 566)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [1, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 273
+   Labels masked count: 1775
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 61665, 198, 4383, 287, 279, 8712, 315, 25, 3639, 374, 39086, 323, 3958, 39086, 323, 3249, 1053]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.157588
+   Loss min/max: 5.157588 / 5.157588
+   Logits min/max: -8.7439 / 19.4229
+   Logits mean/std: -1.4715 / 2.5132
+
+   Predicted tokens (first 20):
+      [1174, 220, 12, 198, 279, 5526, 5507, 4228, 11, 323, 1217, 261, 5507, 430, 2435, 1701, 50048, 11, 499, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 61665, 198, 4383, 287, 279, 8712, 315]
+============================================================
+
+============================================================
+📊 DEBUG: Step 70 (Batch 567)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 29
+   Labels masked count: 2019
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 28969, 50561, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.873083
+   Loss min/max: 7.873083 / 7.873083
+   Logits min/max: -8.8616 / 17.6456
+   Logits mean/std: -1.6020 / 2.5618
+
+   Predicted tokens (first 20):
+      [1174, 220, 20, 11, 1063, 2478, 323, 4228, 11, 323, 11782, 1648, 4221, 13, 2435, 499, 2883, 374, 264, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 28969, 50561, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 80 (Batch 640)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 33
+   Labels masked count: 2015
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 6682, 50787, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.003492
+   Loss min/max: 8.003492 / 8.003492
+   Logits min/max: -8.6990 / 17.4163
+   Logits mean/std: -1.5828 / 2.5486
+
+   Predicted tokens (first 20):
+      [1174, 1174, 18, 14, 6319, 5526, 2592, 15062, 11, 323, 11782, 8641, 4221, 13, 2435, 499, 50048, 596, 279, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 6682, 50787, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 80 (Batch 641)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 36
+   Labels masked count: 2012
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 38910, 52196, 2324, 11008, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.294332
+   Loss min/max: 8.294332 / 8.294332
+   Logits min/max: -8.8250 / 17.4914
+   Logits mean/std: -1.5915 / 2.5547
+
+   Predicted tokens (first 20):
+      [1174, 1174, 18, 11, 1063, 2478, 5507, 4228, 11, 323, 4228, 1648, 5507, 311, 1502, 499, 1217, 374, 4860, 3488]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 38910, 52196, 2324, 11008, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 80 (Batch 642)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 117
+   Labels masked count: 1931
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 1936, 58375, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.084244
+   Loss min/max: 6.084244 / 6.084244
+   Logits min/max: -8.7387 / 17.7899
+   Logits mean/std: -1.4874 / 2.4885
+
+   Predicted tokens (first 20):
+      [1174, 1174, 17, 11, 264, 2294, 5507, 4228, 11, 323, 11782, 1648, 41503, 13, 2435, 499, 1847, 374, 264, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 1936, 58375, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 80 (Batch 643)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 36
+   Labels masked count: 2012
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 5997, 13096, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.176429
+   Loss min/max: 8.176429 / 8.176429
+   Logits min/max: -8.7289 / 20.2589
+   Logits mean/std: -1.5814 / 2.5487
+
+   Predicted tokens (first 20):
+      [1174, 1174, 12, 512, 264, 2294, 2592, 4228, 11, 323, 23387, 1648, 4221, 430, 2435, 499, 50048, 374, 264, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 5997, 13096, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 80 (Batch 644)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 93
+   Labels masked count: 1955
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 269, 11777, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.737836
+   Loss min/max: 6.737836 / 6.737836
+   Logits min/max: -8.8060 / 17.7341
+   Logits mean/std: -1.5303 / 2.4870
+
+   Predicted tokens (first 20):
+      [1174, 220, 220, 13, 279, 2478, 5507, 15062, 11, 323, 2853, 1648, 4221, 13, 2435, 499, 1217, 374, 264, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 269, 11777, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 80 (Batch 645)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 130
+   Labels masked count: 1918
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 5230, 21374, 349, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.314766
+   Loss min/max: 6.314766 / 6.314766
+   Logits min/max: -8.7610 / 17.7595
+   Logits mean/std: -1.4948 / 2.4883
+
+   Predicted tokens (first 20):
+      [1174, 220, 19, 512, 279, 2478, 2592, 3428, 2592, 323, 4228, 1665, 5507, 889, 2435, 499, 1217, 374, 311, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 5230, 21374, 349, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 80 (Batch 646)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 154
+   Labels masked count: 1894
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 61665, 198, 16939, 85040, 13363, 922, 25, 8595, 656, 1274, 1093, 67180, 30, 1131, 100265, 198, 100264]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.940660
+   Loss min/max: 5.940660 / 5.940660
+   Logits min/max: -8.7359 / 17.7709
+   Logits mean/std: -1.4729 / 2.4691
+
+   Predicted tokens (first 20):
+      [1174, 1174, 17, 17, 264, 5526, 5507, 2536, 5507, 323, 11782, 6108, 4221, 430, 2435, 499, 502, 374, 264, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 61665, 198, 16939, 85040, 13363, 922, 25]
+============================================================
+
+============================================================
+📊 DEBUG: Step 80 (Batch 647)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 161
+   Labels masked count: 1887
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 4469, 5411, 15009, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.288265
+   Loss min/max: 6.288265 / 6.288265
+   Logits min/max: -8.7737 / 17.8641
+   Logits mean/std: -1.4838 / 2.4737
+
+   Predicted tokens (first 20):
+      [13309, 220, 19, 11, 1063, 2478, 5507, 15062, 11, 323, 11782, 5452, 5507, 13, 1502, 499, 1217, 374, 264, 3488]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 4469, 5411, 15009, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 90 (Batch 720)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 228
+   Labels masked count: 1820
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 10872, 575, 7709, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.162909
+   Loss min/max: 5.162909 / 5.162909
+   Logits min/max: -8.7268 / 19.4525
+   Logits mean/std: -1.4118 / 2.4488
+
+   Predicted tokens (first 20):
+      [323, 1174, 19, 11, 539, 2294, 5507, 4228, 11, 323, 7524, 5507, 5507, 430, 1502, 499, 1217, 374, 369, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 10872, 575, 7709, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 90 (Batch 721)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 154
+   Labels masked count: 1894
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 30193, 15802, 315, 8146, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.684672
+   Loss min/max: 5.684672 / 5.684672
+   Logits min/max: -8.8441 / 19.9398
+   Logits mean/std: -1.4164 / 2.4305
+
+   Predicted tokens (first 20):
+      [1174, 220, 20, 198, 3967, 2478, 5507, 15062, 11, 323, 7524, 5507, 4221, 369, 2435, 499, 502, 374, 264, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 30193, 15802, 315, 8146, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 90 (Batch 722)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 28
+   Labels masked count: 2020
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 23797, 66, 11968, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.600029
+   Loss min/max: 7.600029 / 7.600029
+   Logits min/max: -8.7280 / 18.0872
+   Logits mean/std: -1.5760 / 2.5432
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 13, 3967, 5526, 5507, 15062, 11, 323, 4228, 261, 4221, 13, 2435, 499, 1847, 374, 264, 3738]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 23797, 66, 11968, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 90 (Batch 723)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 96
+   Labels masked count: 1952
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 82, 3437, 62114, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.265268
+   Loss min/max: 6.265268 / 6.265268
+   Logits min/max: -8.6706 / 18.0756
+   Logits mean/std: -1.5011 / 2.4922
+
+   Predicted tokens (first 20):
+      [323, 220, 17, 13, 279, 2478, 2592, 4228, 11, 323, 1217, 535, 3217, 430, 2435, 499, 5780, 374, 279, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 82, 3437, 62114, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 90 (Batch 724)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 84
+   Labels masked count: 1964
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 67229, 4469, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.375578
+   Loss min/max: 6.375578 / 6.375578
+   Logits min/max: -8.7021 / 19.6558
+   Logits mean/std: -1.5272 / 2.5090
+
+   Predicted tokens (first 20):
+      [1174, 220, 19, 11, 264, 5526, 5211, 4228, 11, 323, 4228, 5507, 4221, 13, 2435, 499, 502, 374, 264, 2763]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 67229, 4469, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 90 (Batch 725)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [1, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 80
+   Labels masked count: 1968
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 45168, 26252, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.900899
+   Loss min/max: 5.900899 / 5.900899
+   Logits min/max: -8.6246 / 18.5342
+   Logits mean/std: -1.5242 / 2.5083
+
+   Predicted tokens (first 20):
+      [1109, 1174, 19, 527, 3967, 2478, 5507, 719, 11, 323, 4228, 261, 13, 13, 2435, 499, 1217, 374, 264, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 45168, 26252, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 90 (Batch 726)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 73
+   Labels masked count: 1975
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 74441, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.748123
+   Loss min/max: 5.748123 / 5.748123
+   Logits min/max: -8.6521 / 17.3952
+   Logits mean/std: -1.5554 / 2.5243
+
+   Predicted tokens (first 20):
+      [1174, 220, 18, 617, 264, 2294, 5873, 1664, 1648, 323, 11782, 1648, 4221, 430, 1502, 499, 5780, 374, 499, 3488]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 74441, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 90 (Batch 727)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 32
+   Labels masked count: 2016
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 93977, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.760941
+   Loss min/max: 7.760941 / 7.760941
+   Logits min/max: -8.6194 / 17.9963
+   Logits mean/std: -1.5867 / 2.5447
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 198, 264, 2294, 323, 15062, 5507, 323, 7524, 261, 430, 13, 2435, 499, 1217, 374, 499, 3488]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 93977, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 100 (Batch 800)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 32
+   Labels masked count: 2016
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 1813, 2444, 645, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.000655
+   Loss min/max: 8.000655 / 8.000655
+   Logits min/max: -8.7591 / 19.7957
+   Logits mean/std: -1.5899 / 2.5512
+
+   Predicted tokens (first 20):
+      [4435, 78149, 19, 512, 264, 2478, 5507, 4228, 11, 323, 11782, 5411, 5507, 13, 2435, 499, 502, 374, 499, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 1813, 2444, 645, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 100 (Batch 801)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 124
+   Labels masked count: 1924
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 61665, 198, 83896, 279, 3488, 389, 25, 10699, 374, 39162, 473, 867, 265, 4798, 1131, 100265, 198]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.594586
+   Loss min/max: 5.594586 / 5.594586
+   Logits min/max: -8.6032 / 17.5641
+   Logits mean/std: -1.5011 / 2.4880
+
+   Predicted tokens (first 20):
+      [34369, 220, 19, 512, 264, 2294, 5507, 15062, 11, 323, 4228, 261, 4221, 430, 2435, 499, 50048, 374, 4860, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 61665, 198, 83896, 279, 3488, 389, 25]
+============================================================
+
+============================================================
+📊 DEBUG: Step 100 (Batch 802)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 31
+   Labels masked count: 2017
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 52755, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.783312
+   Loss min/max: 7.783312 / 7.783312
+   Logits min/max: -8.7286 / 18.2262
+   Logits mean/std: -1.5616 / 2.5303
+
+   Predicted tokens (first 20):
+      [323, 220, 18, 649, 264, 2478, 1160, 719, 5507, 323, 18699, 8641, 4221, 13, 2435, 499, 502, 374, 499, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 52755, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 100 (Batch 803)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 33
+   Labels masked count: 2015
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 21796, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.794489
+   Loss min/max: 7.794489 / 7.794489
+   Logits min/max: -8.6833 / 17.3793
+   Logits mean/std: -1.5911 / 2.5435
+
+   Predicted tokens (first 20):
+      [571, 82, 19, 198, 279, 2478, 5507, 15062, 11, 323, 23387, 2447, 430, 13, 1502, 499, 2883, 374, 369, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 21796, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 100 (Batch 804)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 37
+   Labels masked count: 2011
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 75603, 13046, 47287, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.994741
+   Loss min/max: 7.994741 / 7.994741
+   Logits min/max: -8.8164 / 17.2116
+   Logits mean/std: -1.5963 / 2.5500
+
+   Predicted tokens (first 20):
+      [1174, 1174, 18, 649, 279, 2478, 2592, 15062, 11, 323, 1217, 11, 41503, 13, 2435, 499, 1217, 374, 264, 4382]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 75603, 13046, 47287, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 100 (Batch 805)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 35
+   Labels masked count: 2013
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 4238, 1251, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.896097
+   Loss min/max: 7.896097 / 7.896097
+   Logits min/max: -8.7323 / 17.2311
+   Logits mean/std: -1.5831 / 2.5454
+
+   Predicted tokens (first 20):
+      [1174, 220, 18, 512, 264, 2478, 5507, 4228, 11, 323, 4228, 1847, 4221, 430, 1502, 499, 1847, 374, 499, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 4238, 1251, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 100 (Batch 806)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 31
+   Labels masked count: 2017
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 13284, 38752, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.869750
+   Loss min/max: 7.869750 / 7.869750
+   Logits min/max: -8.7397 / 17.8720
+   Logits mean/std: -1.5812 / 2.5401
+
+   Predicted tokens (first 20):
+      [1174, 1174, 17, 11, 1063, 2478, 11363, 4228, 11, 323, 11782, 4623, 4221, 311, 2435, 499, 502, 374, 264, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 13284, 38752, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 100 (Batch 807)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 36
+   Labels masked count: 2012
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 15824, 9034, 894, 14338, 39881, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 8.333348
+   Loss min/max: 8.333348 / 8.333348
+   Logits min/max: -8.7695 / 17.6402
+   Logits mean/std: -1.5401 / 2.5206
+
+   Predicted tokens (first 20):
+      [1174, 1174, 17, 649, 264, 2478, 2592, 719, 5507, 323, 11782, 10255, 430, 889, 1502, 27397, 502, 374, 499, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 15824, 9034, 894, 14338, 39881]
+============================================================
+
+============================================================
+📊 DEBUG: Step 110 (Batch 880)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 74
+   Labels masked count: 1974
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 23863, 4907, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 6.501288
+   Loss min/max: 6.501288 / 6.501288
+   Logits min/max: -8.8135 / 17.9638
+   Logits mean/std: -1.5102 / 2.4986
+
+   Predicted tokens (first 20):
+      [1174, 315, 18, 13, 264, 5526, 2592, 719, 11, 323, 1664, 8641, 4221, 13, 2435, 499, 1217, 374, 264, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 23863, 4907, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 110 (Batch 881)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 106
+   Labels masked count: 1942
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 61665, 198, 4383, 287, 279, 8712, 315, 25, 64384, 279, 2768, 24524, 25, 379, 284, 220, 22]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.186044
+   Loss min/max: 5.186044 / 5.186044
+   Logits min/max: -8.7401 / 17.7321
+   Logits mean/std: -1.4735 / 2.4760
+
+   Predicted tokens (first 20):
+      [1174, 220, 19, 512, 264, 2478, 5507, 15062, 5507, 323, 15062, 8641, 4221, 13, 2435, 499, 1217, 374, 264, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 61665, 198, 4383, 287, 279, 8712, 315]
+============================================================
+
+============================================================
+📊 DEBUG: Step 110 (Batch 882)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 36
+   Labels masked count: 2012
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 15698, 1824, 15556, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.578568
+   Loss min/max: 7.578568 / 7.578568
+   Logits min/max: -8.7892 / 18.8115
+   Logits mean/std: -1.5733 / 2.5357
+
+   Predicted tokens (first 20):
+      [1174, 1174, 12, 5296, 264, 2294, 5507, 15062, 5507, 323, 4228, 261, 369, 13, 1502, 499, 1217, 374, 279, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 15698, 1824, 15556, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 110 (Batch 883)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [1, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 201
+   Labels masked count: 1847
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 61665, 198, 74407, 20994, 279, 3319, 9002, 25, 3639, 374, 13180, 614, 287, 30, 1131, 100265, 198]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 5.872190
+   Loss min/max: 5.872190 / 5.872190
+   Logits min/max: -8.6068 / 18.7029
+   Logits mean/std: -1.4639 / 2.4500
+
+   Predicted tokens (first 20):
+      [323, 1174, 17, 512, 264, 2478, 5507, 15062, 11, 323, 11782, 5507, 4221, 430, 2435, 701, 6992, 11, 499, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 61665, 198, 74407, 20994, 279, 3319, 9002]
+============================================================
+
+============================================================
+📊 DEBUG: Step 110 (Batch 884)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 72
+   Labels masked count: 1976
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 1962, 5199, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.064457
+   Loss min/max: 7.064457 / 7.064457
+   Logits min/max: -8.8311 / 17.9677
+   Logits mean/std: -1.5656 / 2.5332
+
+   Predicted tokens (first 20):
+      [1174, 220, 19, 499, 3411, 2478, 5507, 1664, 11, 323, 11782, 261, 4221, 430, 1502, 499, 1847, 374, 264, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 1962, 5199, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 110 (Batch 885)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 33
+   Labels masked count: 2015
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 4238, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.686467
+   Loss min/max: 7.686467 / 7.686467
+   Logits min/max: -8.7890 / 17.9475
+   Logits mean/std: -1.5939 / 2.5545
+
+   Predicted tokens (first 20):
+      [4435, 1174, 17, 11, 279, 2478, 5507, 15062, 11, 323, 11782, 261, 4221, 13, 1502, 499, 502, 374, 499, 1217]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 4238, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 110 (Batch 886)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 36
+   Labels masked count: 2012
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 66, 18994, 51180, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.850294
+   Loss min/max: 7.850294 / 7.850294
+   Logits min/max: -8.7059 / 17.6819
+   Logits mean/std: -1.5545 / 2.5326
+
+   Predicted tokens (first 20):
+      [1174, 220, 12, 13, 279, 5526, 5507, 15062, 11, 323, 7524, 261, 4221, 311, 2435, 499, 1217, 374, 499, 3230]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 66, 18994, 51180, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: Step 110 (Batch 887)
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Attention mask shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels range: [-100, 100265]
+   Labels non-masked count: 34
+   Labels masked count: 2014
+
+   First sequence input tokens (first 20):
+      [100264, 9125, 198, 2675, 527, 264, 11190, 11, 11782, 11, 323, 28799, 15592, 18328, 13, 3277, 264, 1217, 17501, 264]
+
+   [Could not decode input text]
+
+   First sequence non-masked labels (first 20):
+      [198, 198, 100264, 78191, 198, 69, 85061, 40373, 100265]
+
+   [Could not decode label text]
+============================================================
+
+🔍 Forward Pass Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss shape: torch.Size([])
+   Loss mean value: 7.909931
+   Loss min/max: 7.909931 / 7.909931
+   Logits min/max: -8.6453 / 17.4061
+   Logits mean/std: -1.5714 / 2.5318
+
+   Predicted tokens (first 20):
+      [1174, 220, 17, 198, 264, 5526, 5507, 2536, 5507, 323, 11782, 5411, 4221, 13, 1502, 499, 1217, 374, 264, 502]
+
+   First 10 non-masked label tokens:
+      [198, 198, 100264, 78191, 198, 69, 85061, 40373, 100265]
+============================================================
+
+============================================================
+📊 DEBUG: EVALUATION Batch 0
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels non-masked count: 33
+
+   [Could not decode input text]
+============================================================
+
+🔍 EVALUATION Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss mean value: 7.779221
+   Logits min/max: -8.4182 / 17.7438
+============================================================
+
+📊 Step 112 | Val Loss: 6.7968
+💾 Checkpoint saved: finetuned_model/best_model
+✅ New best model saved! (loss: 6.7968)
+
+📊 Epoch 1 Summary:
+   Training Loss: 7.8366
+
+============================================================
+📊 DEBUG: EVALUATION Batch 0
+============================================================
+   Input IDs shape: torch.Size([4, 512])
+   Labels shape: torch.Size([4, 512])
+   Input IDs range: [6, 100265]
+   Labels non-masked count: 33
+
+   [Could not decode input text]
+============================================================
+
+🔍 EVALUATION Output Debug:
+   Logits shape: torch.Size([4, 512, 100277])
+   Loss mean value: 7.779221
+   Logits min/max: -8.4182 / 17.7438
+============================================================
+   Validation Loss: 6.7968
+💾 Checkpoint saved: finetuned_model/checkpoint_epoch_1
+
+================================================================================
+🎉 Fine-Tuning Complete!
+================================================================================
+Total time: 0.22 hours
+Best validation loss: 6.7968
+Final model saved to: finetuned_model
+================================================================================
+
+
+================================================================================
+✅ Fine-Tuning Complete!
+================================================================================
+
+📁 Model saved to: finetuned_model
+
+🚀 To use the fine-tuned model:
+   1. Load base model:
+      from src.model import create_model
+      import yaml
+      with open('config/finetuning_config_200m.yaml', 'r') as f:
+          config = yaml.safe_load(f)
+      model = create_model(config)
+   2. Load LoRA weights:
+      from peft import PeftModel
+      model = PeftModel.from_pretrained(model, 'finetuned_model/best_model')
+   3. Generate: model.generate(...)
+================================================================================
+

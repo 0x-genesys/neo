@@ -51,9 +51,10 @@ class LoRAFineTuner:
         lora_r: int = 16,
         lora_alpha: int = 32,
         lora_dropout: float = 0.1,
+        target_modules: list = None,
         resume_from_checkpoint: str = None,
         upload_to_hub: bool = True,
-        hub_repo_id: str = "0x-genesys/neo_weights_checkpoints",
+        hub_repo_id: str = "0x-genesys/neo_weights_200m",
         hub_path_prefix: str = "finetune/",
         use_multi_gpu: bool = False,
     ):
@@ -81,6 +82,7 @@ class LoRAFineTuner:
             lora_r: LoRA rank
             lora_alpha: LoRA alpha
             lora_dropout: LoRA dropout
+            target_modules: List of module names to apply LoRA to (auto-detected from config)
             resume_from_checkpoint: Path to checkpoint to resume from
             upload_to_hub: Upload checkpoints to HuggingFace Hub
             hub_repo_id: HuggingFace repository ID
@@ -112,6 +114,7 @@ class LoRAFineTuner:
         self.lora_r = lora_r
         self.lora_alpha = lora_alpha
         self.lora_dropout = lora_dropout
+        self.target_modules = target_modules
         
         # HuggingFace Hub configuration
         self.upload_to_hub = upload_to_hub
@@ -204,20 +207,23 @@ class LoRAFineTuner:
         
         Target modules: Linear layers in attention, MLP, and output
         - Attention: c_attn (combined QKV), c_proj (output projection)
-        - MLP: net.0 (first linear), net.2 (second linear)
+        - MLP: gate_proj, up_proj, down_proj (SwiGLU)
         - Output: lm_head (language model head)
         
-        Including MLP layers allows the model to learn better reasoning patterns.
+        Target modules are loaded from config lora.target_modules.
         """
         print("\n" + "="*80)
         print("🔧 Applying LoRA Configuration")
         print("="*80)
         
-        # Target attention, MLP, and output layers
-        target_modules = ["c_attn", "c_proj", "net.0", "net.2", "lm_head"]
-        
-        print(f"Target modules identified: {target_modules}")
-        print(f"Note: Including MLP layers (net.0, net.2) for better reasoning capability")
+        # Use target_modules from config, fallback to default if not provided
+        if self.target_modules is not None:
+            target_modules = self.target_modules
+            print(f"Target modules loaded from config: {target_modules}")
+        else:
+            # Fallback to default modules for backward compatibility
+            target_modules = ["c_attn", "c_proj", "net.0", "net.2", "lm_head"]
+            print(f"Target modules not provided in config, using defaults: {target_modules}")
         
         # Configure LoRA
         lora_config = LoraConfig(
@@ -380,18 +386,55 @@ class LoRAFineTuner:
             attention_mask = batch['attention_mask'].to(self.device)
             labels = batch['labels'].to(self.device)
             
+            # ========== DEBUG: INPUT DEBUG LOGS ==========
+            if self.global_step % self.logging_steps == 0 or batch_idx == 0:
+                print(f"\n{'='*60}")
+                print(f"📊 DEBUG: Step {self.global_step} (Batch {batch_idx})")
+                print(f"{'='*60}")
+                print(f"   Input IDs shape: {input_ids.shape}")
+                print(f"   Attention mask shape: {attention_mask.shape}")
+                print(f"   Labels shape: {labels.shape}")
+                print(f"   Input IDs range: [{input_ids.min().item()}, {input_ids.max().item()}]")
+                print(f"   Labels range: [{labels.min().item()}, {labels.max().item()}]")
+                print(f"   Labels non-masked count: {(labels != -100).sum().item()}")
+                print(f"   Labels masked count: {(labels == -100).sum().item()}")
+                
+                # Show first few tokens in first sequence
+                print(f"\n   First sequence input tokens (first 20):")
+                first_seq = input_ids[0][:20].tolist()
+                print(f"      {first_seq}")
+                
+                # Decode and show actual text
+                try:
+                    input_text = self.tokenizer.decode(input_ids[0], skip_special_tokens=True)
+                    print(f"\n   First sequence input text (truncated):")
+                    print(f"      {input_text[:200]}...")
+                except:
+                    print(f"\n   [Could not decode input text]")
+                
+                # Show labels (non-masked tokens)
+                non_masked_labels = labels[0][labels[0] != -100]
+                if len(non_masked_labels) > 0:
+                    print(f"\n   First sequence non-masked labels (first 20):")
+                    print(f"      {non_masked_labels[:20].tolist()}")
+                    try:
+                        label_text = self.tokenizer.decode(non_masked_labels[:20])
+                        print(f"\n   First sequence label text (truncated):")
+                        print(f"      {label_text[:200]}...")
+                    except:
+                        print(f"\n   [Could not decode label text]")
+                print(f"{'='*60}")
+            
             # Debug: Check for out-of-range token IDs in first batch
             if batch_idx == 0:
                 vocab_size = self.model.config.vocab_size if hasattr(self.model, 'config') else 100277
                 max_input_id = input_ids.max().item()
                 max_label_id = labels[labels != -100].max().item() if (labels != -100).any() else -1
                 
-                print(f"\n🔍 First Batch Debug Info:")
+                print(f"\n🔍 First Batch Validation:")
                 print(f"   Model vocab size: {vocab_size}")
                 print(f"   Max input_id: {max_input_id}")
                 print(f"   Max label_id: {max_label_id}")
-                print(f"   Input shape: {input_ids.shape}")
-                print(f"   Labels shape: {labels.shape}")
                 
                 # Check model's actual output vocab size
                 if hasattr(self.model, 'base_model'):
@@ -403,24 +446,15 @@ class LoRAFineTuner:
                 if hasattr(base_model, 'lm_head'):
                     lm_head_out_features = base_model.lm_head.out_features
                     print(f"   Model lm_head output size: {lm_head_out_features}")
-                    
-                    if lm_head_out_features != vocab_size:
-                        print(f"\n❌ CRITICAL: Model output size mismatch!")
-                        print(f"   lm_head outputs {lm_head_out_features} logits")
-                        print(f"   But config says vocab_size={vocab_size}")
-                        print(f"   Loss function expects {vocab_size} classes")
-                        raise ValueError(f"Model output size {lm_head_out_features} != vocab_size {vocab_size}")
                 
                 if max_input_id >= vocab_size:
                     print(f"\n❌ ERROR: Found input token ID {max_input_id} >= vocab_size {vocab_size}")
-                    print(f"   This will cause CUDA assertion errors!")
                     bad_tokens = (input_ids >= vocab_size).sum().item()
                     print(f"   Number of out-of-range tokens: {bad_tokens}")
                     raise ValueError(f"Token IDs exceed vocab size: {max_input_id} >= {vocab_size}")
                 
                 if max_label_id >= vocab_size:
                     print(f"\n❌ ERROR: Found label token ID {max_label_id} >= vocab_size {vocab_size}")
-                    print(f"   This will cause CUDA assertion errors!")
                     bad_labels = (labels >= vocab_size).sum().item()
                     print(f"   Number of out-of-range labels: {bad_labels}")
                     raise ValueError(f"Label IDs exceed vocab size: {max_label_id} >= {vocab_size}")
@@ -432,23 +466,31 @@ class LoRAFineTuner:
                     # Call model with input_ids for PEFT compatibility
                     outputs = self.model(input_ids=input_ids, targets=labels)
                     logits, loss = outputs
-                    
-                    # Debug first batch
-                    if batch_idx == 0:
-                        print(f"\n🔍 Forward Pass Debug:")
-                        print(f"   Logits shape: {logits.shape}")
-                        print(f"   Loss value: {loss.mean().item()}")
-                        print(f"   Logits min/max: {logits.min().item():.4f} / {logits.max().item():.4f}")
             else:
                 outputs = self.model(input_ids=input_ids, targets=labels)
                 logits, loss = outputs
+            
+            # ========== DEBUG: OUTPUT DEBUG LOGS ==========
+            if self.global_step % self.logging_steps == 0 or batch_idx == 0:
+                print(f"\n🔍 Forward Pass Output Debug:")
+                print(f"   Logits shape: {logits.shape}")
+                print(f"   Loss shape: {loss.shape}")
+                print(f"   Loss mean value: {loss.mean().item():.6f}")
+                print(f"   Loss min/max: {loss.min().item():.6f} / {loss.max().item():.6f}")
+                print(f"   Logits min/max: {logits.min().item():.4f} / {logits.max().item():.4f}")
+                print(f"   Logits mean/std: {logits.mean().item():.4f} / {logits.std().item():.4f}")
                 
-                # Debug first batch
-                if batch_idx == 0:
-                    print(f"\n🔍 Forward Pass Debug:")
-                    print(f"   Logits shape: {logits.shape}")
-                    print(f"   Loss value: {loss.mean().item()}")
-                    print(f"   Logits min/max: {logits.min().item():.4f} / {logits.max().item():.4f}")
+                # Show predicted tokens for first sequence
+                predicted_ids = logits[0].argmax(dim=-1)
+                print(f"\n   Predicted tokens (first 20):")
+                print(f"      {predicted_ids[:20].tolist()}")
+                
+                # Compare with labels
+                non_masked = labels[0] != -100
+                if non_masked.sum() > 0:
+                    print(f"\n   First 10 non-masked label tokens:")
+                    print(f"      {labels[0][non_masked][:10].tolist()}")
+                print(f"{'='*60}")
             
             # Scale loss for gradient accumulation
             loss = loss / self.gradient_accumulation_steps
@@ -513,10 +555,29 @@ class LoRAFineTuner:
         num_batches = 0
         
         # Use leave=False to prevent multiple progress bars cluttering output
-        for batch in tqdm(self.val_loader, desc="Evaluating", leave=False):
+        for batch_idx, batch in enumerate(self.val_loader):
             input_ids = batch['input_ids'].to(self.device)
             attention_mask = batch['attention_mask'].to(self.device)
             labels = batch['labels'].to(self.device)
+            
+            # ========== DEBUG: EVALUATION INPUT LOGS ==========
+            if batch_idx == 0:
+                print(f"\n{'='*60}")
+                print(f"📊 DEBUG: EVALUATION Batch {batch_idx}")
+                print(f"{'='*60}")
+                print(f"   Input IDs shape: {input_ids.shape}")
+                print(f"   Labels shape: {labels.shape}")
+                print(f"   Input IDs range: [{input_ids.min().item()}, {input_ids.max().item()}]")
+                print(f"   Labels non-masked count: {(labels != -100).sum().item()}")
+                
+                # Decode first sequence
+                try:
+                    input_text = self.tokenizer.decode(input_ids[0], skip_special_tokens=True)
+                    print(f"\n   First sequence input text (truncated):")
+                    print(f"      {input_text[:200]}...")
+                except:
+                    print(f"\n   [Could not decode input text]")
+                print(f"{'='*60}")
             
             if self.use_amp and self.device.type == "cuda":
                 from torch.amp import autocast
@@ -526,6 +587,14 @@ class LoRAFineTuner:
             else:
                 outputs = self.model(input_ids=input_ids, targets=labels)
                 logits, loss = outputs
+            
+            # ========== DEBUG: EVALUATION OUTPUT LOGS ==========
+            if batch_idx == 0:
+                print(f"\n🔍 EVALUATION Output Debug:")
+                print(f"   Logits shape: {logits.shape}")
+                print(f"   Loss mean value: {loss.mean().item():.6f}")
+                print(f"   Logits min/max: {logits.min().item():.4f} / {logits.max().item():.4f}")
+                print(f"{'='*60}")
             
             total_loss += loss.mean().item()
             num_batches += 1

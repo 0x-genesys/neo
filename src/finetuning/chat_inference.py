@@ -50,10 +50,10 @@ class ChatGenerator:
     def __init__(
         self,
         base_model_path: str = None,
-        adapter_path: str = "chat_adapter",
+        adapter_path: str = None,
         base_model_remote: str = None,
         adapter_remote: str = None,
-        model_repo: str = "0x-genesys/neo_weights_checkpoints",
+        model_repo: str = "0x-genesys/neo_weights_200m",
         config_path: str = None,
         device: str = "auto",
         system_prompt: str = None,
@@ -126,12 +126,10 @@ class ChatGenerator:
             raise ValueError("Either base_model_path or base_model_remote must be provided")
         
         base_model_path = Path(base_model_path)
-        adapter_path = Path(adapter_path)
+        if adapter_path:
+            adapter_path = Path(adapter_path)
         
-        if not base_model_path.exists():
-            raise FileNotFoundError(f"Base model not found: {base_model_path}")
-        
-        if not adapter_path.exists():
+        if adapter_path and not adapter_path.exists():
             raise FileNotFoundError(f"Adapter not found: {adapter_path}")
         
         # Load config
@@ -220,41 +218,55 @@ class ChatGenerator:
                 "Please re-save the model using the updated DecoderOnlyTransformer."
             )
         
-        # Load LoRA adapter
-        print(f"\n📂 Loading LoRA adapter from: {adapter_path}")
-        try:
-            from peft import PeftModel
-            
-            # Check adapter config before loading
-            adapter_config_path = adapter_path / "adapter_config.json"
-            if adapter_config_path.exists():
-                import json
-                with open(adapter_config_path, 'r') as f:
-                    adapter_config = json.load(f)
-                print(f"   Adapter config:")
-                print(f"   - LoRA rank (r): {adapter_config.get('r', 'N/A')}")
-                print(f"   - LoRA alpha: {adapter_config.get('lora_alpha', 'N/A')}")
-                print(f"   - Target modules: {adapter_config.get('target_modules', 'N/A')}")
-                print(f"   - Task type: {adapter_config.get('task_type', 'N/A')}")
-            
-            self.model = PeftModel.from_pretrained(self.model, adapter_path)
-            print(f"✅ LoRA adapter loaded")
-            
-            # Verify adapter is actually being used
-            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-            total_params = sum(p.numel() for p in self.model.parameters())
-            print(f"   Trainable parameters: {trainable_params:,} ({100*trainable_params/total_params:.2f}%)")
-            
-            if trainable_params == 0:
-                print(f"⚠️  WARNING: No trainable parameters! Adapter may not be active.")
-                print(f"   This could cause poor generation quality.")
-            
-        except ImportError:
-            print("❌ PEFT library not installed. Install with: pip install peft")
-            raise
-        except Exception as e:
-            print(f"❌ Error loading adapter: {e}")
-            raise
+        # Load LoRA adapter (if provided)
+        if adapter_path or adapter_remote:
+            print(f"\n📂 Loading LoRA adapter from: {adapter_path}")
+            try:
+                from peft import PeftModel
+                
+                # Check adapter config before loading
+                adapter_config_path = Path(adapter_path) / "adapter_config.json"
+                if adapter_config_path.exists():
+                    import json
+                    with open(adapter_config_path, 'r') as f:
+                        adapter_config = json.load(f)
+                    print(f"   Adapter config:")
+                    print(f"   - LoRA rank (r): {adapter_config.get('r', 'N/A')}")
+                    print(f"   - LoRA alpha: {adapter_config.get('lora_alpha', 'N/A')}")
+                    print(f"   - Target modules: {adapter_config.get('target_modules', 'N/A')}")
+                    print(f"   - Task type: {adapter_config.get('task_type', 'N/A')}")
+                
+                # Load LoRA adapter with is_trainable=True to ensure weights are applied
+                # This is critical because the adapter config has inference_mode=True
+                self.model = PeftModel.from_pretrained(self.model, adapter_path, is_trainable=True)
+                print(f"✅ LoRA adapter loaded")
+
+                # ADD THIS LINE BACK:   
+                print(f"🔄 Merging LoRA weights for fast MPS inference...")
+                self.model = self.model.merge_and_unload()
+
+                # NOTE: We keep the LoRA adapter active (not merged) for inference
+                # This ensures the fine-tuned weights are properly applied
+                # The PEFT model wrapper handles weight application automatically
+                
+                # Verify adapter is actually being used
+                trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+                total_params = sum(p.numel() for p in self.model.parameters())
+                print(f"   Trainable parameters: {trainable_params:,} ({100*trainable_params/total_params:.2f}%)")
+                
+                if trainable_params == 0:
+                    print(f"⚠️  WARNING: No trainable parameters! Adapter may not be active.")
+                    print(f"   This could cause poor generation quality.")
+                
+            except ImportError:
+                print("❌ PEFT library not installed. Install with: pip install peft")
+                raise
+            except Exception as e:
+                print(f"❌ Error loading adapter: {e}")
+                raise
+        else:
+            print(f"\n⚠️  No LoRA adapter provided - using base model only")
+            print(f"   Note: Base model may not be fine-tuned for chat")
         
         # Move to device and set to eval mode
         self.model.to(self.device)
@@ -270,7 +282,7 @@ class ChatGenerator:
         
         if len(existing_tokens) > 1:  # Token was split, need to add
             print(f"   Adding special tokens: {special_tokens}")
-            # Note: For tiktoken, special tokens are already in vocabulary
+            # Note: For tiktoken, special tokens whatisare already in vocabulary
             # This is just for compatibility check
         
         print(f"✅ Tokenizer loaded (vocab size: {len(self.tokenizer)})")
@@ -303,12 +315,24 @@ class ChatGenerator:
             f"{SPECIAL_TOKENS['im_start']}{SPECIAL_TOKENS['user']}\n"
             f"{user_message}{SPECIAL_TOKENS['im_end']}"
         )
-        
-        # Assistant block starter for response generation
+
+        # ---------------------------------------------------------
+        # THE FIX: Give it the thought block if requested!
         if include_thought:
             prompt_parts.append(
                 f"{SPECIAL_TOKENS['im_start']}{SPECIAL_TOKENS['thought']}\n"
             )
+        else:
+            prompt_parts.append(
+                f"{SPECIAL_TOKENS['im_start']}{SPECIAL_TOKENS['assistant']}\n"
+            )
+        # ---------------------------------------------------------
+        
+        # Assistant block starter for response generation
+        # CRITICAL FIX: Always include assistant tag to properly signal response start
+        # prompt_parts.append(
+        #     f"{SPECIAL_TOKENS['im_start']}{SPECIAL_TOKENS['assistant']}\n"
+        # )
         
         return '\n'.join(prompt_parts)
     
@@ -427,11 +451,12 @@ class ChatGenerator:
     def _generate_with_lora(
         self,
         input_ids: torch.Tensor,
-        max_new_tokens: int = 200,
+        max_new_tokens: int = 100,
         temperature: float = 0.7,
         top_k: int = 50,
         top_p: float = 0.9,
-        repetition_penalty: float = 1.2,
+        repetition_penalty: float = 1.3,
+        expected_ends: int = 1  # <--- NEW PARAMETER
     ) -> torch.Tensor:
         """
         Custom generation loop that ensures LoRA weights are applied.
@@ -450,9 +475,12 @@ class ChatGenerator:
         idx = input_ids.clone()
         max_context = self.model.config.max_position_embeddings
         
-        # Get stop token ID (single token for <|im_end|>)
+        # Get stop token IDs
         im_end_tokens = self.tokenizer.encode(SPECIAL_TOKENS['im_end'])
         im_end_id = im_end_tokens[0] if len(im_end_tokens) == 1 else None
+        
+        im_start_tokens = self.tokenizer.encode(SPECIAL_TOKENS['im_start'])
+        im_start_id = im_start_tokens[0] if len(im_start_tokens) == 1 else None
         
         for step in range(max_new_tokens):
             idx_cond = idx if idx.size(1) <= max_context else idx[:, -max_context:]
@@ -479,10 +507,25 @@ class ChatGenerator:
             idx_next = torch.multinomial(probs, num_samples=1)
             idx = torch.cat((idx, idx_next), dim=1)
             
-            # Stop if we generate <|im_end|> token (when it's a single token)
+            # # Stop if we generate <|im_end|> token (when it's a single token)
+            # if im_end_id is not None and idx_next[0, 0].item() == im_end_id:
+            #     # Check if we've generated enough (at least thought + assistant)
+            #     if step > 20:  # Minimum reasonable response length
+            #         return idx
+
+            # Stop immediately when the model outputs <|im_end|> or <|im_start|> (new message)
+            # if (im_end_id is not None and idx_next[0, 0].item() == im_end_id):
+            #     return idx
+            # ---------------------------------------------------------
+            # DYNAMIC EARLY STOPPING
+            # ---------------------------------------------------------
             if im_end_id is not None and idx_next[0, 0].item() == im_end_id:
-                # Check if we've generated enough (at least thought + assistant)
-                if step > 20:  # Minimum reasonable response length
+                # Count how many im_end tokens we have generated so far
+                generated_tokens = idx[0, input_ids.size(1):].tolist()
+                im_end_count = generated_tokens.count(im_end_id)
+                
+                # Stop only when we reach the expected count
+                if im_end_count >= expected_ends:
                     return idx
         
         return idx
@@ -491,11 +534,11 @@ class ChatGenerator:
     def generate(
         self,
         user_message: str,
-        max_new_tokens: int = 200,
+        max_new_tokens: int = 100,
         temperature: float = 0.7,
         top_k: int = 50,
         top_p: float = 0.9,
-        repetition_penalty: float = 1.2,
+        repetition_penalty: float = 1.3,
         show_thought: bool = True,
         debug: bool = False,
     ) -> dict:
@@ -515,8 +558,8 @@ class ChatGenerator:
         Returns:
             Dictionary with 'thought', 'response', and 'full_text'
         """
-        # Format prompt
-        prompt = self.format_prompt(user_message, include_thought=True)
+        # Format prompt - include thought block starter for proper CoT format
+        prompt = self.format_prompt(user_message, include_thought=show_thought)
         
         if debug:
             print(f"\n{'='*80}")
@@ -549,6 +592,7 @@ class ChatGenerator:
             top_k=top_k,
             top_p=top_p,
             repetition_penalty=repetition_penalty,
+            expected_ends=2 if show_thought else 1,  # <--- PASS THE FLAG HERE
         )
         
         if debug:
@@ -573,11 +617,11 @@ class ChatGenerator:
     
     def interactive_mode(
         self,
-        max_new_tokens: int = 200,
+        max_new_tokens: int = 100,
         temperature: float = 0.7,
         top_k: int = 50,
         top_p: float = 0.9,
-        repetition_penalty: float = 1.2,
+        repetition_penalty: float = 1.3,
         show_thought: bool = True,
         debug: bool = False,
     ):
@@ -698,6 +742,17 @@ class ChatGenerator:
                     print(f"{'='*80}")
                     print(result['full_text'])
                     print(f"{'='*80}")
+
+                # ---------------------------------------------------------
+                # NEW CODE: ADD THIS HERE TO PREVENT MEMORY LEAKS ON MAC
+                # ---------------------------------------------------------
+                import gc
+                gc.collect()
+                if torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
+                elif torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                # ---------------------------------------------------------
                 
             except KeyboardInterrupt:
                 print("\n\n👋 Goodbye!")
@@ -819,7 +874,7 @@ Examples:
     parser.add_argument(
         '--max-tokens',
         type=int,
-        default=200,
+        default=100,
         help='Maximum tokens to generate'
     )
     parser.add_argument(
@@ -843,7 +898,7 @@ Examples:
     parser.add_argument(
         '--repetition-penalty',
         type=float,
-        default=1.2,
+        default=1.3,
         help='Penalty for repeated tokens (1.0 disables)'
     )
     parser.add_argument(
@@ -854,7 +909,12 @@ Examples:
     parser.add_argument(
         '--debug',
         action='store_true',
-        help='Enable debug mode (show raw generation output)'
+        help='Enable debug mode with detailed logs'
+    )
+    parser.add_argument(
+        '--no-adapter',
+        action='store_true',
+        help='Run without LoRA adapter (use base model only)'
     )
     
     args = parser.parse_args()
@@ -863,8 +923,8 @@ Examples:
     base_model_path = args.base_model
     base_model_remote = None if args.base_model else args.base_model_remote
     
-    adapter_path = args.adapter
-    adapter_remote = None if args.adapter else args.adapter_remote
+    adapter_path = None if args.no_adapter else args.adapter
+    adapter_remote = None if args.no_adapter or args.adapter else args.adapter_remote
     
     # Initialize generator
     generator = ChatGenerator(

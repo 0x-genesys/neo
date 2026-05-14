@@ -1,136 +1,110 @@
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                                                                              ║
-║              🤖 PRODUCTION-READY TRANSFORMER LANGUAGE MODEL 🤖               ║
-║                                                                              ║
-║                    Complete Training & Inference System                      ║
-║                                                                              ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+================================================================================
+                    PRODUCTION-READY TRANSFORMER LANGUAGE MODEL
+                         Complete Training & Inference System
+================================================================================
 
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ ✨ KEY FEATURES                                                              │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ✅ Cross-Platform Device Support                                           │
-│     • Automatic detection: CUDA → MPS → CPU                                 │
-│     • Apple Silicon (M1/M2/M3) optimized                                    │
-│     • Intel Mac with MPS support                                            │
-│     • NVIDIA CUDA │ ✨ KEY FEATURES                                                              │
-├─────────────────    │
-│                                                                              │
-│  ✅ Production-Ready Architecture                                           │
-│     ???                          nsformer                                    │
-│     • Multi-head causal self-attention                                      │
-│     • Pre-norm for training stability                                       │
-│     • Weight tying (embeddings ↔ output)                                    │
-│     • 10M - 350M+ parameters                                                │
-│                                                                              │
-│  ✅ Complete Training Pipeline                                              │
-│     • Mixed precision (AMP)                                                 │
-│     • Gradient accumulation & clipping                                      │
-│     • Learning rate scheduling                                              │
-│     • Checkpointing & resuming                                              │
-│     • TensorBoard & W&B logging                                             │
-│                                                                              │
-│  ✅ 10+ Datasets Ready                                                      │
-│     • tiny_shakespeare (1MB)                                                │
-│     • WikiText-2/103 (4MB-500MB)                                            │
-│     • OpenWebText (40GB)                                                    │
-│     • The Pile (825GB)                                                      │
-│     • And more...                                                           │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+KEY FEATURES
+------------------------------------------------------------------------------
 
-┌───────────────────────────────────────────────────────────???     • tiny_shakespeare (1MB)                                                ?E│     • WikiText-2/103 (4MB-500MB)                                            ─???     • OpenWebText (40GB)                                                    └?│     • The Pile (825GB)                                                      ??│     • And more...                                                           ? │                                                                              │  └──────────────────────────? 
-┌───────────────────────────────────────────────────────────???     • tiny_shakespeare (1MB)                      ????───────────────────────────────────────────────────────────???     • tiny_shakespeare (1MB)                      ????───────────────────────────────────────────────────────────???     • tiny_shakespeare (1MB)                      ????───────────────────────────────────────────────────────────???     • tiny_shakespeare (1MB)                      ????──────────────────?  │
-│  │  ├─ QUICK_REFERENCE.md ................ Command cheatsheet              │
-│  │  ├─ PRODUCTION_READY_SUMMARY.md ....... System overview                 │
-│  │  └─ GETTING_STARTED.md ................ Tutorial                        │
-│  │                                                                           │
-│  ├─ 💻 CORE CODE                                                            │
-│  │  ├─ train.py .......................... Main training                   │
-│  │  ├─ evaluate.py ....................... Model evaluation                │
-│  │  └─ src/                                                                 │
-│  │     ├─ model.py ....................... Transformer architecture        │
-│  │     ├─ trainer.py ..................... Training loop                   │
-│  │     ├─ data.py ........................ Data pipeline                   │
-│  │     ├─ inference.py .......│..│  │  ├─ PRODUCTION_READY_SUMMARY.md ....... System overview                 ?.│  │  └─ GETTING_STARTED.md ................ Tutorial                        ? │  │                                                                           │
-  │  ├─ 💻 CORE CODE                                                           ml│  │  ├─ train.py .......................... Main training                   │ .│  │  ├─ evaluate.py ....................... Model evaluation                ? │  │  └─ src/                                                                 ? │  │     ├─ model.py ....................... Transformer architecture        │a.│  │     ├─ trainer.py ..................... Training loop                   ? │  │     ├─ data.py ........................ Data pipeline                   ? │  │     ├─ inference.py .......│..│  │  ├─ PRODUCTION_READY_SUMMARY...  │  ├─ 💻 CORE CODE                                                           ml│  │  ├─ train.py .......................... Main training                   │ .│  │  ├─ evaluate.py ....................... Model evaluation                ? │  │  └─ src/                   ??──────────────────────────────────────────────────────────────────────────────┘
+  * Cross-Platform Device Support
+    - Automatic detection: CUDA -> MPS -> CPU
+    - Apple Silicon (M1/M2/M3) optimized
+    - Intel Mac with MPS support
+    - NVIDIA CUDA support
 
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ 🚀 QUICK START (3 STEPS)                                                     │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  Step 1: Fix Python Version (IMPORTANT!)                                    │
-│  ──────────────
-┌─────────────────────────────────────────────────────────────────────────────?  │ 🚀 QUICK START (3 STEPS)                                                     │
-├─                                      │
-│    $ brew install python@3.11                                               │
-│    $ python3.11 -m venv venv                                                │
-│    $ source venv/bin/activate                                               │
-│    $ pip install -r requirements.txt                                        │
-│                                                                              │
-│  Option B│  Step 1: Fix Python                                            │
-│    $ conda│  ──────────────
-┌──────────?a┌────────                     ├─                                      │
-│    $ brew install python@3.11                                               │
-│    $ python3.11 -m venv venv                                                │
-│    $ source venv/bin/activate                                               │
-│    $ pip install -r  │    $ brew install python@3.11             ??│    $ python3.11 -m venv venv                                                ? │    $ source venv/bin/act          │
-│    $ python test_installation.py      │    $ pip install -r requirements.txt                                        ? │                                                  3: Train Your First Model      │  Option B│  Step 1: Fix Python                                            └????    $ conda│  ──────────────
-┌───          ┌──────────?a┌───────  │    $ brew install python@3.                 │
-│                                                                             │    $ python3.11 -m venv venv                                                ─???    $ source venv/bin/activ??─────────────────???    $ pip install -r  │    $ brew install python@3.11             ??│    $ ???    ────────────────────────────────────────────────────────────────┌───          ┌──────────?a┌───────  │    $ brew install python@3.                 │
-│                                                                             │    $ python3.11 -m venv venv                                                ─???    $ source venv/bin/activ??───────??│                                                                             │    $ python3.11 -m venv venv                        │                                                                             │    $ python3.11 -m venv venv                                                ─???    $ source venv/bin/activ??───────??│                                                                             │    $ python3.11 -m venv venv                        │                                                                             │    $ python3.11 -m venv venv                                                ─???    $ source venv/bin/activ??───────??│                                                                   ??
-│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel Mac│    Intel M??───────────────────────────┘
+  * Production-Ready Architecture
+    - Causal Transformer with multi-head self-attention
+    - Pre-norm for training stability
+    - Weight tying (embeddings <-> output)
+    - 10M - 350M+ parameters
 
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ 🎯 RECOMMENDED LEARNING PATH                                                 │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  Day 1 (Beginner):                                                          │
-│  ─────────────────                                                          │
-│    1. Fix Python version                                                    ?┌────────────────                              │
-│ 🎯 RECOMMENDED LEARNING PATH                                                 │
-├─────────────────────────────?                                                                      │
-│  Day 2-3 (Intermediate):                                               │                                                                              │
-│  Day 1 (Beginner):                                                          │
-│  ─────────────────              to│  Day 1 (Beginner):                                          │
-│    3. Experim│  ─────────────────                            │    1. Fi                                                    │
-│  Week 1+ (Advanced):                                                        │
-│  ────────────────────                                                       │
-│    1. Train on larger datasets                                              │
-│    2. Tune hyperparameters                                                  │
-│    3. Try different model sizes                                             │
-│    4. Set up W&B logging                                                    │
-│                                                                              │
-???  ───────────────???─────────???    3. Experim│  ─────────────────                            │    1. Fi                        ?????  Week 1+ (Advanced):                                                        │
-│  ────────────────────          ?───│  ────────────────────                 ??│    1. Train on larger datasets                                              │
-│    2. Tune hyperparameters        ??│    2. Tune hyperparameters                                                  └?│    3. Try different model sizes                                             └?│    4. Set up W&B logging                                                        │                                  │
-│  START_HERE.md ........................???  ───────────────???────────?.│  ────────────────────          ?───│  ────────────────────                 .. Command cheatsheet                  │
-│  HUGGINGFACE_SETUP.md ................. HF token setup                      │
-│  DATASETS.md .......................... Dataset information                 │
-│  PRODUCTION_READY_SUMMARY.md .......... System overview                     │
-│                                                                              │
-└────???  START_HERE.md ........................???  ─────────────────────────────────────────────────────────┘
+  * Complete Training Pipeline
+    - Mixed precision (AMP)
+    - Gradient accumulation & clipping
+    - Learning rate scheduling
+    - Checkpointing & resuming
+    - TensorBoard & W&B logging
 
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ 🆘 COMMON ISSUES & FIXES                                                     │
-├──────────────────────────────────────│  DATASETS.md .......................... Dataset information                 └?│  PRODUCTION_READY_SUMMARY.md .......... System overview                     ? │                                                                              ? └────???  START_HERE.md ........................???  ─────?e
-┌──────────────────────────────────────────────────────────────────────────────?po│ 🆘 COMMON ISSUES & FIXES                                                     │
-├──────────────────────────────────────│  DATASETS.md .................. b├───────────────────────────? ┌──────────────────────────────────────────────────────────────────────────────?po│ 🆘 COMMON ISSUES & FIXES                                                     │
-├──────────────────────────────────────│  DAT????──────────────────────────────────────│  DATASETS.md .................. b├─────────────────────────────────────────────────────────├──────────────────────────────────────│  DAT????──────────────────────────────────────│  DATASETS.md .................. b├────────────────────────────────────────────────  │
-│  Before training, make sure:                                                │
-│                                                │  Before training, make sure:                                                │
-│                                                │  Before training, make sure:                                                │
-│                                                │  Before training, make sure:                                                │
-│                                                │  Before training, make sure:                                                │
-│                                                │  Before training, make sure:                                                │
-│                                                │  Before training, make sure:                                                │
-│                                                │  Before training, make sure:                                             ??│                                                │  Before training, make sure??│                                                │  Before training, make sure:                                                ????                                                │  Before training, make sure:                                                ?!│                                                │  Before training, make sure:                                                ? │                                                │  Before training, make sure:                                                ? │                                                │  Before training, make sure:                                                ? │                                                │  Before training, make sure:                                             ??│     ║
-║                                                                              ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+  * 10+ Datasets Ready
+    - tiny_shakespeare (1MB)
+    - WikiText-2/103 (4MB-500MB)
+    - OpenWebText (40GB)
+    - The Pile (825GB)
+    - And more...
 
+DIRECTORY STRUCTURE
+------------------------------------------------------------------------------
+
+  START_HERE.md ............ Main entry point & tutorial
+  QUICK_REFERENCE.md ....... Command cheatsheet
+  PRODUCTION_READY_SUMMARY.md .. System overview
+  GETTING_STARTED.md ....... Tutorial
+
+  CORE CODE
+  +-- train.py ............. Main training script
+  +-- evaluate.py .......... Model evaluation
+  +-- src/
+      +-- model.py ......... Transformer architecture
+      +-- trainer.py ....... Training loop
+      +-- data.py .......... Data pipeline
+      +-- inference.py ..... Inference & generation
+
+QUICK START (3 STEPS)
+------------------------------------------------------------------------------
+
+Step 1: Fix Python Version (IMPORTANT!)
+  $ brew install python@3.11
+  $ python3.11 -m venv venv
+  $ source venv/bin/activate
+  $ pip install -r requirements.txt
+
+Step 2: Download Dataset
+  $ python scripts/download_dataset.py --dataset wikitext2
+
+Step 3: Train Your First Model
+  $ python train.py --config config/tiny_10m.yaml
+
+RECOMMENDED LEARNING PATH
+------------------------------------------------------------------------------
+
+  Day 1 (Beginner):
+    1. Fix Python version
+    2. Run tiny_shakespeare example
+    3. Experiment with generation
+
+  Day 2-3 (Intermediate):
+    1. Train on WikiText-2
+    2. Tune hyperparameters
+    3. Evaluate model quality
+
+  Week 1+ (Advanced):
+    1. Train on larger datasets
+    2. Tune hyperparameters
+    3. Try different model sizes
+    4. Set up W&B logging
+
+DOCUMENTATION
+------------------------------------------------------------------------------
+
+  START_HERE.md ............ Main entry point
+  HUGGINGFACE_SETUP.md ..... HF token setup
+  DATASETS.md .............. Dataset information
+  PRODUCTION_READY_SUMMARY.md .. System overview
+
+COMMON ISSUES & FIXES
+------------------------------------------------------------------------------
+
+Before training, make sure:
+  - Python 3.11 is installed
+  - Virtual environment is activated
+  - requirements.txt is installed
+  - Dataset is downloaded
+  - GPU/CPU device is available
+
+================================================================================
 For detailed instructions, read: START_HERE.md
 For quick commands, read: QUICK_REFERENCE.md
 For full documentation, read: README.md
 
-Happy Training! 🚀
+Happy Training!
+================================================================================

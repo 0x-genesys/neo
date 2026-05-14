@@ -1,6 +1,6 @@
 # Core ML libraries
-numpy<2.0  # Must be <2.0 for PyTorch compatibility
-pandas==3.0.2
+numpy>=2.3.3  # Required for pandas 3.x compatibility with Python 3.14
+pandas>=2.2.0  # Updated to work with numpy 2.x
 scikit-learn==1.8.0
 
 # Visualization
